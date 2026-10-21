@@ -1,0 +1,43 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "2515050242/wayfarer"
+
+// Values
+pub fn parse_csv(String) -> Result[CsvTable, CsvError]
+
+pub fn validate_schema(String, CsvTable) -> Array[SchemaIssue]
+
+// Errors
+
+// Types and methods
+pub enum CsvError {
+  EmptyDocument
+  EmptyHeader(line~ : Int, column~ : Int)
+  DuplicateHeader(name~ : String, column~ : Int)
+  UnexpectedQuote(line~ : Int, column~ : Int)
+  CharactersAfterQuote(line~ : Int, column~ : Int)
+  UnterminatedQuote(line~ : Int, column~ : Int)
+  RowWidthMismatch(line~ : Int, expected~ : Int, actual~ : Int)
+}
+
+pub struct CsvRow {
+  line : Int
+  cells : Array[String]
+}
+pub fn CsvRow::get(Self, CsvTable, String) -> String?
+
+pub struct CsvTable {
+  headers : Array[String]
+  rows : Array[CsvRow]
+}
+pub fn CsvTable::column_index(Self, String) -> Int?
+
+pub struct SchemaIssue {
+  code : String
+  table : String
+  column : String
+  message : String
+}
+
+// Type aliases
+
+// Traits

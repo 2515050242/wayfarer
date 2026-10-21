@@ -1,0 +1,37 @@
+name: MoonBit checks
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v5
+
+      - name: Install MoonBit
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+
+      - name: Report toolchain
+        run: moon version --all
+
+      - name: Check formatting
+        run: moon fmt --check
+
+      - name: Check package
+        run: moon check
+
+      - name: Check generated public interface
+        run: |
+          moon info
+          git diff --exit-code -- pkg.generated.mbti
+
+      - name: Run tests
+        run: moon test
