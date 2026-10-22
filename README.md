@@ -60,9 +60,11 @@ explicitly above and will grow in later increments.
 
 The command reads an unzipped GTFS directory. Install the [MoonBit
 toolchain](https://www.moonbitlang.com/download/), clone this repository, and
-run the bundled passing feed from the repository root:
+run the registry sync once, then check the bundled passing feed from the
+repository root:
 
 ```text
+moon update
 moon run cmd/main examples/valid
 ```
 
