@@ -289,3 +289,68 @@ test "reports an empty required trip route reference" {
   assert_eq(issues[0].line, 2)
   assert_eq(issues[0].column, "route_id")
 }
+
+///|
+fn validate_stop_time_fixture(source : String) -> Array[@wayfarer.FeedIssue] {
+  @wayfarer.validate_feed(
+    @wayfarer.GtfsTables::new(None, None, None, Some(parse_test_table(source))),
+  )
+}
+
+///|
+test "accepts sequence gaps and service-day times after midnight" {
+  let issues = validate_stop_time_fixture(
+    "trip_id,stop_sequence,arrival_time,departure_time\nT1,0,23:59:00,23:59:00\nT1,25,25:35:00,25:36:00",
+  )
+  assert_eq(issues.length(), 0)
+}
+
+///|
+test "accepts valid H time notation and does not impose time monotonicity" {
+  let issues = validate_stop_time_fixture(
+    "trip_id,stop_sequence,arrival_time,departure_time\nT1,1,9:05:07,9:05:07\nT1,2,8:00:00,8:00:00",
+  )
+  assert_eq(issues.length(), 0)
+}
+
+///|
+test "reports negative, non-integer, and decreasing stop sequences" {
+  let issues = validate_stop_time_fixture(
+    "trip_id,stop_sequence\nT1,-1\nT2,2.5\nT3,4\nT3,2",
+  )
+  assert_eq(issues.length(), 3)
+  assert_eq(issues[0].code, "invalid_stop_sequence")
+  assert_eq(issues[0].line, 2)
+  assert_eq(issues[1].code, "invalid_stop_sequence")
+  assert_eq(issues[2].code, "stop_sequence_not_increasing")
+  assert_eq(issues[2].line, 5)
+}
+
+///|
+test "treats integer spellings of the same sequence as a duplicate key" {
+  let issues = validate_stop_time_fixture("trip_id,stop_sequence\nT1,1\nT1,01")
+  assert_eq(issues.length(), 1)
+  assert_eq(issues[0].code, "duplicate_primary_key")
+  assert_eq(issues[0].line, 3)
+}
+
+///|
+test "reports malformed stop-time clock values at their source cells" {
+  let issues = validate_stop_time_fixture(
+    "trip_id,stop_sequence,arrival_time,departure_time\nT1,1,1:2:03,25:60:00\nT1,2,10:10:60,10:11:00",
+  )
+  assert_eq(issues.length(), 3)
+  assert_eq(issues[0].code, "invalid_time")
+  assert_eq(issues[0].line, 2)
+  assert_eq(issues[0].column, "arrival_time")
+  assert_eq(issues[1].line, 3)
+  assert_eq(issues[2].column, "departure_time")
+}
+
+///|
+test "allows blank conditional stop-time values" {
+  let issues = validate_stop_time_fixture(
+    "trip_id,stop_sequence,arrival_time,departure_time\nT1,1,,",
+  )
+  assert_eq(issues.length(), 0)
+}

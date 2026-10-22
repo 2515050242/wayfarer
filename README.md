@@ -5,11 +5,11 @@ Wayfarer is a MoonBit toolkit for checking General Transit Feed Specification
 feed maintainers and developers who need clear, reproducible data-quality
 checks.
 
-The first increments establish a strict CSV input layer and core feed checks:
-source-located CSV parsing, rectangular-row and required-header checks, plus
-selected identifiers and references between the core GTFS tables listed below.
-This is a deliberately limited validator, not a complete GTFS conformance
-checker.
+The current increments establish a strict CSV input layer and core feed checks:
+source-located CSV parsing, rectangular-row and required-header checks, selected
+identifiers and references between core GTFS tables, and key stop-time schedule
+fields. This is a deliberately limited validator, not a complete GTFS
+conformance checker.
 
 ## Current coverage
 
@@ -32,6 +32,11 @@ checker.
 - Each `trips.route_id` resolves to `routes.route_id`.
 - Each `stop_times.trip_id` resolves to `trips.trip_id`.
 - A non-empty `stop_times.stop_id` resolves to `stops.stop_id`.
+- `stop_sequence` is a non-negative integer and increases within each trip in
+  file order. Gaps are accepted, as the specification allows.
+- Non-empty `arrival_time` and `departure_time` values use `H:MM:SS` or
+  `HH:MM:SS`; minute and second values must be from `00` to `59`. Hours above
+  24 are accepted for service after midnight.
 
 Findings include the source file, physical CSV line, field, offending value,
 stable code, and a short explanation. Missing table context skips checks that
@@ -39,7 +44,11 @@ need that table; callers should run `validate_schema` for each supplied table
 as well. An empty `stop_times.stop_id` is allowed here because that field is
 conditionally required by GTFS. The validator does not yet check service ID
 relationships, stop hierarchy, location groups or GeoJSON ID collisions,
-conditional field requirements, or timetable value semantics. See the
+conditional field requirements, `timepoint` rules, or whether clock values
+progress monotonically along a trip. GTFS defines increasing `stop_sequence`
+values, but the Schedule reference does not specify a matching mandatory time
+ordering rule, so unusual but well-formed time values are not rejected on that
+basis. See the
 [GTFS Schedule reference](https://gtfs.org/documentation/schedule/reference/)
 for the complete specification.
 
@@ -50,17 +59,23 @@ explicitly above and will grow in later increments.
 ## Try it
 
 The package is not published to Mooncakes yet. From a checkout with the MoonBit
-toolchain installed, run:
+toolchain installed, run the bundled feed fixtures and unit checks:
 
 ```sh
 moon test
 ```
 
+The fixture suite passes a two-stop trip with a sequence gap and a `25:35:00`
+service-day time, then checks that malformed clock values and decreasing or
+invalid sequences produce source-located findings. The library has no command
+line interface yet; feed consumers parse each CSV file, build `GtfsTables`, and
+call `validate_feed` to receive structured findings.
+
 The public library API exposes `parse_csv` for CSV text, `validate_schema` for
 checking the header profile of one supported table, and `validate_feed` for
-the relationship checks above. Parsing failures and schema/feed findings use
-structured result types. A caller can build `GtfsTables` from the results of
-`parse_csv` and pass the available tables to `validate_feed`.
+the relationship and stop-time checks above. Parsing failures and schema/feed
+findings use structured result types. A caller can build `GtfsTables` from the
+results of `parse_csv` and pass the available tables to `validate_feed`.
 
 `CsvRow.line` records the physical source line where a data row begins. Quoted
 commas, doubled quotes, quoted newlines, CRLF input, and a UTF-8 BOM before the

@@ -36,7 +36,7 @@ pub struct FeedIssue {
 /// Check core GTFS IDs and references across the supplied tables.
 ///
 /// This checks `stops.stop_id`, `routes.route_id`, and `trips.trip_id` for
-/// uniqueness; the composite `stop_times` key; trip-to-route and stop-time
+/// uniqueness; stop-time key and schedule fields; trip-to-route and stop-time
 /// references. It does not check service IDs, conditional fields, or whether
 /// the supplied tables satisfy the required-header profile.
 pub fn validate_feed(tables : GtfsTables) -> Array[FeedIssue] {
@@ -79,10 +79,9 @@ pub fn validate_feed(tables : GtfsTables) -> Array[FeedIssue] {
           true,
         )
       }
-      check_composite_stop_time_key(stop_times, issues)
+      check_stop_time_semantics(stop_times, issues)
     }
-    (Some(stop_times), None) =>
-      check_composite_stop_time_key(stop_times, issues)
+    (Some(stop_times), None) => check_stop_time_semantics(stop_times, issues)
     _ => ()
   }
 
@@ -182,23 +181,24 @@ fn check_reference(
 }
 
 ///|
-fn check_composite_stop_time_key(
+fn check_stop_time_semantics(
   table : CsvTable,
   issues : Array[FeedIssue],
 ) -> Unit {
   match (table.column_index("trip_id"), table.column_index("stop_sequence")) {
     (Some(trip_column), Some(sequence_column)) => {
-      let sequences : Map[String, Map[String, Int32]] = Map([])
+      let sequences : Map[String, Map[Int32, Int32]] = Map([])
+      let previous : Map[String, Int32] = Map([])
       for row in table.rows {
         let trip_id = row.cells[trip_column]
-        let sequence = row.cells[sequence_column]
-        if sequence == "" {
+        let sequence_text = row.cells[sequence_column]
+        if sequence_text == "" {
           issues.push(FeedIssue::{
             code: "empty_primary_key",
             file: "stop_times.txt",
             line: row.line,
             column: "stop_sequence",
-            value: sequence,
+            value: sequence_text,
             message: "primary key value must not be empty",
           })
         }
@@ -212,30 +212,149 @@ fn check_composite_stop_time_key(
             message: "primary key value must not be empty",
           })
         }
-        if trip_id != "" && sequence != "" {
-          match sequences.get(trip_id) {
-            Some(seen) =>
-              match seen.get(sequence) {
-                Some(_) =>
-                  issues.push(FeedIssue::{
-                    code: "duplicate_primary_key",
-                    file: "stop_times.txt",
-                    line: row.line,
-                    column: "stop_sequence",
-                    value: sequence,
-                    message: "stop_sequence is already used for this trip_id",
-                  })
-                None => seen.set(sequence, row.line)
-              }
-            None => {
-              let first_sequence : Map[String, Int32] = Map([])
-              first_sequence.set(sequence, row.line)
-              sequences.set(trip_id, first_sequence)
+        match parse_non_negative_integer(sequence_text) {
+          None =>
+            if sequence_text != "" {
+              issues.push(FeedIssue::{
+                code: "invalid_stop_sequence",
+                file: "stop_times.txt",
+                line: row.line,
+                column: "stop_sequence",
+                value: sequence_text,
+                message: "stop_sequence must be a non-negative integer",
+              })
             }
-          }
+          Some(sequence) =>
+            if trip_id != "" {
+              let seen = match sequences.get(trip_id) {
+                Some(seen) => seen
+                None => {
+                  let first_sequence : Map[Int32, Int32] = Map([])
+                  sequences.set(trip_id, first_sequence)
+                  first_sequence
+                }
+              }
+              if seen.get(sequence) is Some(_) {
+                issues.push(FeedIssue::{
+                  code: "duplicate_primary_key",
+                  file: "stop_times.txt",
+                  line: row.line,
+                  column: "stop_sequence",
+                  value: sequence_text,
+                  message: "stop_sequence is already used for this trip_id",
+                })
+              } else {
+                seen.set(sequence, row.line)
+                match previous.get(trip_id) {
+                  Some(last) =>
+                    if sequence < last {
+                      issues.push(FeedIssue::{
+                        code: "stop_sequence_not_increasing",
+                        file: "stop_times.txt",
+                        line: row.line,
+                        column: "stop_sequence",
+                        value: sequence_text,
+                        message: "stop_sequence must increase along each trip",
+                      })
+                    }
+                  None => ()
+                }
+                previous.set(trip_id, sequence)
+              }
+            }
         }
       }
     }
     _ => ()
   }
+  check_stop_time_column(table, "arrival_time", issues)
+  check_stop_time_column(table, "departure_time", issues)
+}
+
+///|
+fn check_stop_time_column(
+  table : CsvTable,
+  column : String,
+  issues : Array[FeedIssue],
+) -> Unit {
+  match table.column_index(column) {
+    None => ()
+    Some(column_index) =>
+      for row in table.rows {
+        let value = row.cells[column_index]
+        if value != "" && !is_gtfs_time(value) {
+          issues.push(FeedIssue::{
+            code: "invalid_time",
+            file: "stop_times.txt",
+            line: row.line,
+            column,
+            value,
+            message: "time must use H:MM:SS or HH:MM:SS with minutes and seconds from 00 to 59",
+          })
+        }
+      }
+  }
+}
+
+///|
+fn parse_non_negative_integer(value : String) -> Int32? {
+  if value == "" {
+    None
+  } else {
+    let mut result = 0
+    let mut valid = true
+    for index in 0..<value.length() {
+      let unit = value.code_unit_at(index).to_int()
+      if unit < 48 ||
+        unit > 57 ||
+        result > 214748364 ||
+        (result == 214748364 && unit > 55) {
+        valid = false
+      } else {
+        result = result * 10 + unit - 48
+      }
+    }
+    if valid {
+      Some(result)
+    } else {
+      None
+    }
+  }
+}
+
+///|
+fn is_gtfs_time(value : String) -> Bool {
+  let length = value.length()
+  if length != 7 && length != 8 {
+    false
+  } else {
+    let hour_digits = length - 6
+    let mut valid = true
+    for index in 0..<length {
+      let unit = value.code_unit_at(index).to_int()
+      if index == hour_digits || index == hour_digits + 3 {
+        if unit != 58 {
+          valid = false
+        }
+      } else if unit < 48 || unit > 57 {
+        valid = false
+      }
+    }
+    if !valid {
+      false
+    } else {
+      let minute_start = hour_digits + 1
+      let second_start = hour_digits + 4
+      let minutes = two_digits(value, minute_start)
+      let seconds = two_digits(value, second_start)
+      minutes < 60 && seconds < 60
+    }
+  }
+}
+
+///|
+fn two_digits(value : String, start : Int32) -> Int32 {
+  (value.code_unit_at(start).to_int() - 48) * 10 +
+  value.code_unit_at(start + 1).to_int() -
+  48
 }
