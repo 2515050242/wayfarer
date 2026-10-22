@@ -58,24 +58,56 @@ explicitly above and will grow in later increments.
 
 ## Try it
 
-The package is not published to Mooncakes yet. From a checkout with the MoonBit
-toolchain installed, run the bundled feed fixtures and unit checks:
+The command reads an unzipped GTFS directory. Install the [MoonBit
+toolchain](https://www.moonbitlang.com/download/), clone this repository, and
+run the bundled passing feed from the repository root:
 
-```sh
-moon test
+```text
+moon run cmd/main examples/valid
 ```
 
-The fixture suite passes a two-stop trip with a sequence gap and a `25:35:00`
-service-day time, then checks that malformed clock values and decreasing or
-invalid sequences produce source-located findings. The library has no command
-line interface yet; feed consumers parse each CSV file, build `GtfsTables`, and
-call `validate_feed` to receive structured findings.
+Expected output:
+
+```text
+Wayfarer: checking examples/valid
+PASS (supported checks only): 6 parsed files, 8 records, 0 findings
+```
+
+To see actionable errors, run the failing fixture:
+
+```text
+moon run cmd/main examples/invalid
+```
+
+It exits with status 1 and includes diagnostics such as:
+
+```text
+ERROR trips.txt:2 route_id="UNKNOWN" [unresolved_reference] referenced ID does not exist in routes.txt
+ERROR stop_times.txt:2 arrival_time="25:60:00" [invalid_time] time must use H:MM:SS or HH:MM:SS with minutes and seconds from 00 to 59
+ERROR stop_times.txt:2 departure_time="25:61:00" [invalid_time] time must use H:MM:SS or HH:MM:SS with minutes and seconds from 00 to 59
+FAIL: 5 parsed files, 5 records, 3 findings
+```
+
+The folder must contain `agency.txt`, `stops.txt`, `routes.txt`, `trips.txt`,
+and `stop_times.txt`; `calendar.txt` is checked when present. Other GTFS tables
+are currently ignored, so location-based on-demand feeds are outside this
+command's supported input profile. The checker reads files as UTF-8 and uses
+the host path separator, so the same relative commands work in PowerShell and
+POSIX shells. It does not extract ZIP archives. `moon test` runs the library's
+unit fixtures, including parsing, schema, feed references, time formats, and
+sequence boundaries.
 
 The public library API exposes `parse_csv` for CSV text, `validate_schema` for
 checking the header profile of one supported table, and `validate_feed` for
 the relationship and stop-time checks above. Parsing failures and schema/feed
 findings use structured result types. A caller can build `GtfsTables` from the
 results of `parse_csv` and pass the available tables to `validate_feed`.
+
+The `cmd/main` executable connects these APIs to a local feed directory. Its
+only external module dependency is `moonbitlang/x` 0.5.6 for filesystem, path,
+and process-exit support; the parser and validation rules remain in this MoonBit module.
+The upstream module declares Apache-2.0 and identifies its packages as
+experimental.
 
 `CsvRow.line` records the physical source line where a data row begins. Quoted
 commas, doubled quotes, quoted newlines, CRLF input, and a UTF-8 BOM before the

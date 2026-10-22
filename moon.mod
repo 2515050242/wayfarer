@@ -24,3 +24,7 @@ keywords = [ "gtfs", "transit", "csv", "validation" ]
 preferred_target = "wasm"
 
 description = "A MoonBit toolkit for inspecting and validating GTFS Schedule feeds."
+
+import {
+  "moonbitlang/x@0.5.6",
+}
