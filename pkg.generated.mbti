@@ -4,6 +4,8 @@ package "2515050242/wayfarer"
 // Values
 pub fn parse_csv(String) -> Result[CsvTable, CsvError]
 
+pub fn validate_feed(GtfsTables) -> Array[FeedIssue]
+
 pub fn validate_schema(String, CsvTable) -> Array[SchemaIssue]
 
 // Errors
@@ -30,6 +32,23 @@ pub struct CsvTable {
   rows : Array[CsvRow]
 }
 pub fn CsvTable::column_index(Self, String) -> Int32?
+
+pub struct FeedIssue {
+  code : String
+  file : String
+  line : Int32
+  column : String
+  value : String
+  message : String
+}
+
+pub(all) struct GtfsTables {
+  stops : CsvTable?
+  routes : CsvTable?
+  trips : CsvTable?
+  stop_times : CsvTable?
+}
+pub fn GtfsTables::new(CsvTable?, CsvTable?, CsvTable?, CsvTable?) -> Self
 
 pub struct SchemaIssue {
   code : String

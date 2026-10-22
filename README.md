@@ -5,10 +5,11 @@ Wayfarer is a MoonBit toolkit for checking General Transit Feed Specification
 feed maintainers and developers who need clear, reproducible data-quality
 checks.
 
-The first release increment establishes the input layer: a strict CSV reader
-with source locations, rectangular-row checks, and required-header checks for
-the core GTFS tables listed below. It does not yet validate relationships
-between files or timetable semantics.
+The first increments establish a strict CSV input layer and core feed checks:
+source-located CSV parsing, rectangular-row and required-header checks, plus
+selected identifiers and references between the core GTFS tables listed below.
+This is a deliberately limited validator, not a complete GTFS conformance
+checker.
 
 ## Current coverage
 
@@ -21,10 +22,30 @@ between files or timetable semantics.
 | `stop_times.txt` | `trip_id`, `stop_sequence` |
 | `calendar.txt` | `service_id`, weekday flags, `start_date`, `end_date` |
 
-GTFS has conditional requirements and newer location and fare files. Wayfarer
-does not claim to validate those yet. In particular, a header-only check cannot
-decide whether conditional fields are required for a specific row. The
-validator will report its supported rule set explicitly as coverage grows.
+## Feed relationship checks
+
+`validate_feed` accepts the core tables that are available and checks:
+
+- `stop_id`, `route_id`, and `trip_id` are non-empty and unique within their
+  supported table.
+- `(trip_id, stop_sequence)` is present and unique in `stop_times.txt`.
+- Each `trips.route_id` resolves to `routes.route_id`.
+- Each `stop_times.trip_id` resolves to `trips.trip_id`.
+- A non-empty `stop_times.stop_id` resolves to `stops.stop_id`.
+
+Findings include the source file, physical CSV line, field, offending value,
+stable code, and a short explanation. Missing table context skips checks that
+need that table; callers should run `validate_schema` for each supplied table
+as well. An empty `stop_times.stop_id` is allowed here because that field is
+conditionally required by GTFS. The validator does not yet check service ID
+relationships, stop hierarchy, location groups or GeoJSON ID collisions,
+conditional field requirements, or timetable value semantics. See the
+[GTFS Schedule reference](https://gtfs.org/documentation/schedule/reference/)
+for the complete specification.
+
+GTFS also has conditional requirements and newer location and fare files.
+Wayfarer does not claim to validate those yet; the supported rule set is listed
+explicitly above and will grow in later increments.
 
 ## Try it
 
@@ -35,9 +56,11 @@ toolchain installed, run:
 moon test
 ```
 
-The public library API exposes `parse_csv` for CSV text and `validate_schema`
-for checking the header profile of one supported table. Parsing failures and
-schema findings use structured result types.
+The public library API exposes `parse_csv` for CSV text, `validate_schema` for
+checking the header profile of one supported table, and `validate_feed` for
+the relationship checks above. Parsing failures and schema/feed findings use
+structured result types. A caller can build `GtfsTables` from the results of
+`parse_csv` and pass the available tables to `validate_feed`.
 
 `CsvRow.line` records the physical source line where a data row begins. Quoted
 commas, doubled quotes, quoted newlines, CRLF input, and a UTF-8 BOM before the
