@@ -33,6 +33,8 @@ conformance checker.
 - Each `trips.route_id` resolves to `routes.route_id`.
 - When `calendar.txt` or `calendar_dates.txt` is supplied with a `service_id`
   column, each `trips.service_id` resolves to the union of those service IDs.
+- In `calendar_dates.txt`, `(service_id, date)` pairs are unique and `date`
+  is non-empty.
 - Each `stop_times.trip_id` resolves to `trips.trip_id`.
 - A non-empty `stop_times.stop_id` resolves to `stops.stop_id`.
 - `stop_sequence` is a non-negative integer and unique within each trip. Gaps
@@ -47,10 +49,11 @@ stable code, and a short explanation. Missing table context skips checks that
 need that table; callers should run `validate_schema` for each supplied table
 as well. Trip service IDs are checked only when at least one service table
 provides its `service_id` column; `calendar_dates.txt` may provide service IDs
-without a weekly `calendar.txt`. This check does not validate service dates or
-exception types. An empty `stop_times.stop_id` is allowed here because that field is
-conditionally required by GTFS. The validator does not yet check stop
-hierarchy, location groups or GeoJSON ID collisions, conditional field
+without a weekly `calendar.txt`. This check does not validate calendar date
+syntax, date ranges, or `exception_type` values. An empty `stop_times.stop_id` is
+allowed here because that field is conditionally required by GTFS. The
+validator does not yet check stop hierarchy, location groups or GeoJSON ID
+collisions, conditional field
 requirements, `timepoint` rules, or whether clock values progress monotonically
 along a trip. GTFS defines `stop_sequence` as the order
 of stops along a trip; this validator uses the numeric sequence values and does
@@ -92,11 +95,12 @@ moon run cmd/main examples/invalid
 It exits with status 1 and includes diagnostics such as:
 
 ```text
+ERROR calendar_dates.txt:3 service_id,date="WK,20261031" [duplicate_primary_key] service_id and date pair is already used in this table
 ERROR trips.txt:2 route_id="UNKNOWN" [unresolved_reference] referenced ID does not exist in routes.txt
 ERROR trips.txt:2 service_id="MISSING" [unresolved_reference] referenced ID does not exist in calendar.txt or calendar_dates.txt
 ERROR stop_times.txt:2 arrival_time="25:60:00" [invalid_time] time must use H:MM:SS or HH:MM:SS with minutes and seconds from 00 to 59
 ERROR stop_times.txt:2 departure_time="25:61:00" [invalid_time] time must use H:MM:SS or HH:MM:SS with minutes and seconds from 00 to 59
-FAIL: 6 parsed files, 6 records, 4 findings
+FAIL: 6 parsed files, 7 records, 5 findings
 ```
 
 The folder must contain `agency.txt`, `stops.txt`, `routes.txt`, `trips.txt`,

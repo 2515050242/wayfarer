@@ -202,6 +202,73 @@ test "accepts service IDs supplied across both calendar tables" {
 }
 
 ///|
+test "rejects duplicate calendar_dates service and date pairs" {
+  let trips = parse_test_table("route_id,service_id,trip_id\nR1,WK,T1")
+  let calendar_dates = parse_test_table(
+    "service_id,date,exception_type\nWK,20260101,1\nWK,20260101,2",
+  )
+  let issues = @wayfarer.validate_feed(
+    @wayfarer.GtfsTables::with_services(
+      None,
+      None,
+      Some(trips),
+      None,
+      None,
+      Some(calendar_dates),
+    ),
+  )
+  assert_eq(issues.length(), 1)
+  assert_eq(issues[0].code, "duplicate_primary_key")
+  assert_eq(issues[0].file, "calendar_dates.txt")
+  assert_eq(issues[0].line, 3)
+  assert_eq(issues[0].column, "service_id,date")
+  assert_eq(issues[0].value, "WK,20260101")
+}
+
+///|
+test "reports an empty calendar_dates date at its source row" {
+  let calendar_dates = parse_test_table("service_id,date,exception_type\nWK,,1")
+  let issues = @wayfarer.validate_feed(
+    @wayfarer.GtfsTables::with_services(
+      None,
+      None,
+      None,
+      None,
+      None,
+      Some(calendar_dates),
+    ),
+  )
+  assert_eq(issues.length(), 1)
+  assert_eq(issues[0].code, "empty_primary_key")
+  assert_eq(issues[0].file, "calendar_dates.txt")
+  assert_eq(issues[0].line, 2)
+  assert_eq(issues[0].column, "date")
+  assert_eq(issues[0].value, "")
+}
+
+///|
+test "leaves a missing calendar_dates date column to schema validation" {
+  let calendar_dates = parse_test_table("service_id,exception_type\nWK,1")
+  let schema_issues = @wayfarer.validate_schema(
+    "calendar_dates.txt", calendar_dates,
+  )
+  assert_eq(schema_issues.length(), 1)
+  assert_eq(schema_issues[0].code, "missing_required_header")
+  assert_eq(schema_issues[0].column, "date")
+  let feed_issues = @wayfarer.validate_feed(
+    @wayfarer.GtfsTables::with_services(
+      None,
+      None,
+      None,
+      None,
+      None,
+      Some(calendar_dates),
+    ),
+  )
+  assert_eq(feed_issues.length(), 0)
+}
+
+///|
 test "reports a trip service ID absent from supplied calendar tables" {
   let trips = parse_test_table("route_id,service_id,trip_id\nR1,MISSING,T1")
   let calendar = parse_test_table("service_id\nWK")

@@ -91,8 +91,10 @@ pub fn validate_feed(tables : GtfsTables) -> Array[FeedIssue] {
     None => ()
   }
   match tables.calendar_dates {
-    Some(table) =>
+    Some(table) => {
       index_service_ids(table, "calendar_dates.txt", service_ids, issues, false)
+      check_calendar_date_keys(table, issues)
+    }
     None => ()
   }
 
@@ -151,6 +153,54 @@ pub fn validate_feed(tables : GtfsTables) -> Array[FeedIssue] {
     _ => ()
   }
   issues
+}
+
+///|
+fn check_calendar_date_keys(
+  table : CsvTable,
+  issues : Array[FeedIssue],
+) -> Unit {
+  match (table.column_index("service_id"), table.column_index("date")) {
+    (Some(service_column), Some(date_column)) => {
+      let seen : Map[String, Map[String, Int32]] = Map([])
+      for row in table.rows {
+        let service_id = row.cells[service_column]
+        let date = row.cells[date_column]
+        if date == "" {
+          issues.push(FeedIssue::{
+            code: "empty_primary_key",
+            file: "calendar_dates.txt",
+            line: row.line,
+            column: "date",
+            value: date,
+            message: "date value must not be empty",
+          })
+        } else if service_id != "" {
+          let dates = match seen.get(service_id) {
+            Some(dates) => dates
+            None => {
+              let dates : Map[String, Int32] = Map([])
+              seen.set(service_id, dates)
+              dates
+            }
+          }
+          if dates.get(date) is Some(_) {
+            issues.push(FeedIssue::{
+              code: "duplicate_primary_key",
+              file: "calendar_dates.txt",
+              line: row.line,
+              column: "service_id,date",
+              value: service_id + "," + date,
+              message: "service_id and date pair is already used in this table",
+            })
+          } else {
+            dates.set(date, row.line)
+          }
+        }
+      }
+    }
+    _ => ()
+  }
 }
 
 ///|
