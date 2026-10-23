@@ -46,6 +46,13 @@ conformance checker.
 - Provided arrival and departure times do not move backward when stop rows are
   read in `trip_id` and numeric `stop_sequence` order. Equal consecutive times
   are accepted, and blank or malformed times are excluded from this comparison.
+- `arrival_time` is required at the first and last stop of each trip, and both
+  `arrival_time` and `departure_time` are required when `timepoint` is `1`.
+  Rows with a non-empty pickup/drop-off window are exempt because GTFS forbids
+  those time fields there. These checks use numeric stop order and report a
+  missing field even when its column is absent. A trip with invalid or duplicate
+  stop sequences has no inferred first or last stop, avoiding boundary findings
+  from ambiguous order.
 
 Findings include the source file, physical CSV line, field, offending value,
 stable code, and a short explanation. Missing table context skips checks that
@@ -54,12 +61,14 @@ as well. Trip service IDs are checked only when at least one service table
 provides its `service_id` column; `calendar_dates.txt` may provide service IDs
 without a weekly `calendar.txt`. This check does not validate calendar date
 syntax, date ranges, or `exception_type` values. An empty `stop_times.stop_id` is
-allowed here because that field is conditionally required by GTFS. The
-validator does not yet check stop hierarchy, location groups or GeoJSON ID
-collisions, conditional field requirements, `timepoint` rules, or other
-conditional stop-time fields. GTFS defines `stop_sequence` as the order of
-stops along a trip; this validator uses the numeric sequence values and does
-not require CSV rows to be sorted. See the
+allowed here because that field is conditionally required by GTFS and this
+validator does not parse location groups or GeoJSON locations. The validator
+does not yet check stop hierarchy, location groups or GeoJSON ID collisions,
+pickup/drop-off window field validity or whether time fields are forbidden
+there, `timepoint` values other than the exact value `1`, or other conditional
+stop-time fields. GTFS defines `stop_sequence` as the order of stops along a
+trip; this validator uses the numeric sequence values and does not require CSV
+rows to be sorted. See the
 [GTFS Schedule reference](https://gtfs.org/documentation/schedule/reference/)
 for the complete specification.
 
@@ -98,16 +107,30 @@ It exits with status 1 and includes diagnostics such as:
 ERROR calendar_dates.txt:3 service_id,date="WK,20261031" [duplicate_primary_key] service_id and date pair is already used in this table
 ERROR trips.txt:2 route_id="UNKNOWN" [unresolved_reference] referenced ID does not exist in routes.txt
 ERROR trips.txt:2 service_id="MISSING" [unresolved_reference] referenced ID does not exist in calendar.txt or calendar_dates.txt
-ERROR stop_times.txt:2 arrival_time="25:60:00" [invalid_time] time must use H:MM:SS or HH:MM:SS with minutes and seconds from 00 to 59
+ERROR stop_times.txt:2 arrival_time="" [missing_required_time] arrival_time is required at the first and last stop of a trip
 ERROR stop_times.txt:2 departure_time="25:61:00" [invalid_time] time must use H:MM:SS or HH:MM:SS with minutes and seconds from 00 to 59
 ERROR stop_times.txt:4 arrival_time="25:00:00" [time_order_violation] time precedes an earlier defined time in this trip's stop_sequence order
 FAIL: 6 parsed files, 9 records, 6 findings
 ```
 
+The CLI also enforces the GTFS service-calendar file requirement. A feed must
+include `calendar.txt` or `calendar_dates.txt`; this fixture shows the result
+when both are absent:
+
+```text
+moon run cmd/main examples/no-service-calendar
+```
+
+```text
+Wayfarer: checking examples/no-service-calendar
+ERROR calendar.txt/calendar_dates.txt [missing_service_calendar] at least one service calendar file is required
+FAIL: 5 parsed files, 7 records, 1 finding
+```
+
 The folder must contain `agency.txt`, `stops.txt`, `routes.txt`, `trips.txt`,
-and `stop_times.txt`; `calendar.txt` and `calendar_dates.txt` are checked when
-present. If either service table is available, trips' `service_id` values are
-checked against the IDs it defines. Other GTFS tables are currently ignored,
+and `stop_times.txt`, plus at least one of `calendar.txt` or
+`calendar_dates.txt`. If either service table is available, trips' `service_id`
+values are checked against the IDs it defines. Other GTFS tables are currently ignored,
 so location-based on-demand feeds are outside this command's supported input
 profile. The checker reads files as UTF-8 and uses
 the host path separator, so the same relative commands work in PowerShell and
@@ -121,7 +144,9 @@ the relationship and stop-time checks above. `GtfsTables::new` accepts the
 core tables; `GtfsTables::with_services` also accepts optional `calendar.txt`
 and `calendar_dates.txt` context. Parsing failures and schema/feed findings
 use structured result types. A caller can build `GtfsTables` from the results
-of `parse_csv` and pass the available tables to `validate_feed`.
+of `parse_csv` and pass the available tables to `validate_feed`. The library
+API supports partial table sets and skips checks without context; the
+directory CLI additionally enforces the service-calendar file requirement.
 
 The `cmd/main` executable connects these APIs to a local feed directory. Its
 only external module dependency is `moonbitlang/x` 0.5.6 for filesystem, path,

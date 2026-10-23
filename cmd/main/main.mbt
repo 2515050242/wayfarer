@@ -33,11 +33,15 @@ fn main {
   let mut finding_count = 0
   let mut record_count = 0
   let mut file_count = 0
+  let mut has_service_calendar_file = false
 
   println("Wayfarer: checking " + directory)
   for filename in filenames {
     let path = directory + @path.sep.to_string() + filename
     if @fs.path_exists(path) {
+      if filename == "calendar.txt" || filename == "calendar_dates.txt" {
+        has_service_calendar_file = true
+      }
       let source : Result[String, @fs.IOError] = Ok(
         @fs.read_file_to_string(path),
       ) catch {
@@ -78,6 +82,13 @@ fn main {
       println("ERROR " + filename + " [missing_file] required file is missing")
       finding_count = finding_count + 1
     }
+  }
+
+  if !has_service_calendar_file {
+    println(
+      "ERROR calendar.txt/calendar_dates.txt [missing_service_calendar] at least one service calendar file is required",
+    )
+    finding_count = finding_count + 1
   }
 
   let feed = @wayfarer.GtfsTables::with_services(
@@ -122,7 +133,7 @@ fn main {
       record_count.to_string() +
       " records, " +
       finding_count.to_string() +
-      " findings",
+      (if finding_count == 1 { " finding" } else { " findings" }),
     )
     @sys.exit(1)
   }

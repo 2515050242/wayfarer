@@ -334,8 +334,14 @@ fn check_stop_time_semantics(
   match (table.column_index("trip_id"), table.column_index("stop_sequence")) {
     (Some(trip_column), Some(sequence_column)) => {
       let sequences : Map[String, Map[Int32, Int32]] = Map([])
+      let invalid_sequence_trips : Map[String, Bool] = Map([])
       let arrival_column = table.column_index("arrival_time")
       let departure_column = table.column_index("departure_time")
+      let timepoint_column = table.column_index("timepoint")
+      let start_window_column = table.column_index(
+        "start_pickup_drop_off_window",
+      )
+      let end_window_column = table.column_index("end_pickup_drop_off_window")
       for row in table.rows {
         let trip_id = row.cells[trip_column]
         let sequence_text = row.cells[sequence_column]
@@ -360,7 +366,10 @@ fn check_stop_time_semantics(
           })
         }
         match parse_non_negative_integer(sequence_text) {
-          None =>
+          None => {
+            if trip_id != "" {
+              invalid_sequence_trips.set(trip_id, true)
+            }
             if sequence_text != "" {
               issues.push(FeedIssue::{
                 code: "invalid_stop_sequence",
@@ -371,6 +380,7 @@ fn check_stop_time_semantics(
                 message: "stop_sequence must be a non-negative integer",
               })
             }
+          }
           Some(sequence) =>
             if trip_id != "" {
               let seen = match sequences.get(trip_id) {
@@ -382,6 +392,7 @@ fn check_stop_time_semantics(
                 }
               }
               if seen.get(sequence) is Some(_) {
+                invalid_sequence_trips.set(trip_id, true)
                 issues.push(FeedIssue::{
                   code: "duplicate_primary_key",
                   file: "stop_times.txt",
@@ -400,6 +411,20 @@ fn check_stop_time_semantics(
                   Some(column) => row.cells[column]
                   None => ""
                 }
+                let timepoint_text = match timepoint_column {
+                  Some(column) => row.cells[column]
+                  None => ""
+                }
+                let has_start_window = match start_window_column {
+                  Some(column) => row.cells[column] != ""
+                  None => false
+                }
+                let has_end_window = match end_window_column {
+                  Some(column) => row.cells[column] != ""
+                  None => false
+                }
+                let has_pickup_drop_off_window = has_start_window ||
+                  has_end_window
                 timed_stops.push(TimedStop::{
                   trip_id,
                   sequence,
@@ -408,11 +433,27 @@ fn check_stop_time_semantics(
                   arrival_seconds: gtfs_time_seconds(arrival_text),
                   departure_text,
                   departure_seconds: gtfs_time_seconds(departure_text),
+                  timepoint_text,
+                  has_pickup_drop_off_window,
                 })
               }
             }
         }
       }
+      timed_stops.sort_by(fn(a, b) {
+        if a.trip_id < b.trip_id {
+          -1
+        } else if a.trip_id > b.trip_id {
+          1
+        } else if a.sequence < b.sequence {
+          -1
+        } else if a.sequence > b.sequence {
+          1
+        } else {
+          0
+        }
+      })
+      check_stop_time_conditionals(timed_stops, invalid_sequence_trips, issues)
     }
     _ => ()
   }
@@ -430,6 +471,65 @@ priv struct TimedStop {
   arrival_seconds : Int32?
   departure_text : String
   departure_seconds : Int32?
+  timepoint_text : String
+  has_pickup_drop_off_window : Bool
+}
+
+///|
+fn check_stop_time_conditionals(
+  timed_stops : Array[TimedStop],
+  invalid_sequence_trips : Map[String, Bool],
+  issues : Array[FeedIssue],
+) -> Unit {
+  for index in 0..<timed_stops.length() {
+    let stop = timed_stops[index]
+    let first_in_trip = index == 0 ||
+      timed_stops[index - 1].trip_id != stop.trip_id
+    let last_in_trip = index + 1 == timed_stops.length() ||
+      timed_stops[index + 1].trip_id != stop.trip_id
+    let can_locate_trip_ends = match invalid_sequence_trips.get(stop.trip_id) {
+      Some(_) => false
+      None => true
+    }
+    let arrival_required = !stop.has_pickup_drop_off_window &&
+      (
+        stop.timepoint_text == "1" ||
+        (can_locate_trip_ends && (first_in_trip || last_in_trip))
+      )
+    if arrival_required && stop.arrival_text == "" {
+      let message = if stop.timepoint_text == "1" {
+        "arrival_time is required when timepoint is 1"
+      } else {
+        "arrival_time is required at the first and last stop of a trip"
+      }
+      add_missing_stop_time_issue(stop, "arrival_time", message, issues)
+    }
+    if !stop.has_pickup_drop_off_window &&
+      stop.timepoint_text == "1" &&
+      stop.departure_text == "" {
+      add_missing_stop_time_issue(
+        stop, "departure_time", "departure_time is required when timepoint is 1",
+        issues,
+      )
+    }
+  }
+}
+
+///|
+fn add_missing_stop_time_issue(
+  stop : TimedStop,
+  column : String,
+  message : String,
+  issues : Array[FeedIssue],
+) -> Unit {
+  issues.push(FeedIssue::{
+    code: "missing_required_time",
+    file: "stop_times.txt",
+    line: stop.line,
+    column,
+    value: "",
+    message,
+  })
 }
 
 ///|
@@ -437,19 +537,6 @@ fn check_stop_time_order(
   timed_stops : Array[TimedStop],
   issues : Array[FeedIssue],
 ) -> Unit {
-  timed_stops.sort_by(fn(a, b) {
-    if a.trip_id < b.trip_id {
-      -1
-    } else if a.trip_id > b.trip_id {
-      1
-    } else if a.sequence < b.sequence {
-      -1
-    } else if a.sequence > b.sequence {
-      1
-    } else {
-      0
-    }
-  })
   let mut previous_trip = ""
   let mut previous_time : Int32? = None
   for stop in timed_stops {

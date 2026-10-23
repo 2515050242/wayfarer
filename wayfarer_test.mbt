@@ -138,7 +138,7 @@ fn make_gtfs_tables(
 ///|
 fn valid_gtfs_tables() -> @wayfarer.GtfsTables {
   make_gtfs_tables(
-    "stop_id\nS1\nS2", "route_id\nR1", "route_id,service_id,trip_id\nR1,WK,T1", "trip_id,stop_sequence,stop_id\nT1,1,S1\nT1,2,S2",
+    "stop_id\nS1\nS2", "route_id\nR1", "route_id,service_id,trip_id\nR1,WK,T1", "trip_id,stop_sequence,stop_id,arrival_time\nT1,1,S1,9:00:00\nT1,2,S2,9:10:00",
   )
 }
 
@@ -299,7 +299,9 @@ test "reports duplicate primary keys and the composite stop time key" {
       parse_test_table("route_id,service_id,trip_id\nR1,WK,T1\nR1,WK,T1"),
     ),
     stop_times: Some(
-      parse_test_table("trip_id,stop_sequence,stop_id\nT1,1,S1\nT1,1,S1"),
+      parse_test_table(
+        "trip_id,stop_sequence,stop_id,arrival_time\nT1,1,S1,9:00:00\nT1,1,S1,9:00:00",
+      ),
     ),
     calendar: None,
     calendar_dates: None,
@@ -380,7 +382,7 @@ test "reports a trip whose route does not exist" {
 test "reports a stop time whose trip does not exist" {
   let tables = valid_gtfs_tables()
   let stop_times = parse_test_table(
-    "trip_id,stop_sequence,stop_id\nMISSING,1,S1",
+    "trip_id,stop_sequence,stop_id,arrival_time\nMISSING,1,S1,9:00:00",
   )
   let issues = @wayfarer.validate_feed(@wayfarer.GtfsTables::{
     ..tables,
@@ -395,7 +397,7 @@ test "reports a stop time whose trip does not exist" {
 test "reports an unresolved stop but accepts an empty conditional stop id" {
   let tables = valid_gtfs_tables()
   let missing_stop = parse_test_table(
-    "trip_id,stop_sequence,stop_id\nT1,1,MISSING",
+    "trip_id,stop_sequence,stop_id,arrival_time\nT1,1,MISSING,9:00:00",
   )
   let missing_issues = @wayfarer.validate_feed(@wayfarer.GtfsTables::{
     ..tables,
@@ -403,7 +405,9 @@ test "reports an unresolved stop but accepts an empty conditional stop id" {
   })
   assert_eq(missing_issues.length(), 1)
   assert_eq(missing_issues[0].column, "stop_id")
-  let location_group = parse_test_table("trip_id,stop_sequence,stop_id\nT1,1,")
+  let location_group = parse_test_table(
+    "trip_id,stop_sequence,stop_id,arrival_time\nT1,1,,9:00:00",
+  )
   let empty_issues = @wayfarer.validate_feed(@wayfarer.GtfsTables::{
     ..tables,
     stop_times: Some(location_group),
@@ -426,7 +430,7 @@ test "skips references when their target table is not supplied" {
 ///|
 test "reports an empty required trip route reference" {
   let tables = make_gtfs_tables(
-    "stop_id\nS1\nS2", "route_id\nR1", "route_id,service_id,trip_id\n,WK,T1", "trip_id,stop_sequence,stop_id\nT1,1,S1",
+    "stop_id\nS1\nS2", "route_id\nR1", "route_id,service_id,trip_id\n,WK,T1", "trip_id,stop_sequence,stop_id,arrival_time\nT1,1,S1,9:00:00",
   )
   let issues = @wayfarer.validate_feed(tables)
   assert_eq(issues.length(), 1)
@@ -473,7 +477,7 @@ test "reports a time reversal in stop sequence order" {
 ///|
 test "reports negative and non-integer stop sequences" {
   let issues = validate_stop_time_fixture(
-    "trip_id,stop_sequence\nT1,-1\nT2,2.5\nT3,4\nT3,2",
+    "trip_id,stop_sequence,arrival_time\nT1,-1,\nT2,2.5,\nT3,4,9:20:00\nT3,2,9:10:00",
   )
   assert_eq(issues.length(), 2)
   assert_eq(issues[0].code, "invalid_stop_sequence")
@@ -511,9 +515,60 @@ test "reports malformed stop-time clock values at their source cells" {
 }
 
 ///|
-test "allows blank conditional stop-time values" {
+test "allows blank intermediate times when the stop is not exact" {
   let issues = validate_stop_time_fixture(
-    "trip_id,stop_sequence,arrival_time,departure_time\nT1,1,,",
+    "trip_id,stop_sequence,arrival_time,departure_time,timepoint\nT1,1,9:00:00,,0\nT1,2,,,0\nT1,3,9:10:00,,0",
   )
   assert_eq(issues.length(), 0)
+}
+
+///|
+test "requires arrival times at first and last stops in sequence order" {
+  let issues = validate_stop_time_fixture(
+    "trip_id,stop_sequence,arrival_time\nT1,30,\nT1,10,\nT1,20,9:05:00",
+  )
+  assert_eq(issues.length(), 2)
+  assert_eq(issues[0].code, "missing_required_time")
+  assert_eq(issues[0].line, 3)
+  assert_eq(issues[0].column, "arrival_time")
+  assert_eq(issues[1].line, 2)
+}
+
+///|
+test "reports a missing conditional time even when its column is absent" {
+  let issues = validate_stop_time_fixture("trip_id,stop_sequence\nT1,1")
+  assert_eq(issues.length(), 1)
+  assert_eq(issues[0].code, "missing_required_time")
+  assert_eq(issues[0].line, 2)
+  assert_eq(issues[0].column, "arrival_time")
+}
+
+///|
+test "requires arrival and departure when timepoint is exact" {
+  let issues = validate_stop_time_fixture(
+    "trip_id,stop_sequence,arrival_time,departure_time,timepoint\nT1,1,9:00:00,,0\nT1,2,,,1\nT1,3,9:10:00,,0",
+  )
+  assert_eq(issues.length(), 2)
+  assert_eq(issues[0].code, "missing_required_time")
+  assert_eq(issues[0].line, 3)
+  assert_eq(issues[0].column, "arrival_time")
+  assert_eq(issues[1].line, 3)
+  assert_eq(issues[1].column, "departure_time")
+}
+
+///|
+test "does not require times when a pickup or drop-off window is supplied" {
+  let issues = validate_stop_time_fixture(
+    "trip_id,stop_sequence,arrival_time,departure_time,start_pickup_drop_off_window,end_pickup_drop_off_window\nT1,1,,,08:00:00,\nT1,2,,,,08:10:00",
+  )
+  assert_eq(issues.length(), 0)
+}
+
+///|
+test "does not infer trip ends from duplicate stop sequences" {
+  let issues = validate_stop_time_fixture(
+    "trip_id,stop_sequence,arrival_time\nT1,1,\nT1,1,",
+  )
+  assert_eq(issues.length(), 1)
+  assert_eq(issues[0].code, "duplicate_primary_key")
 }
