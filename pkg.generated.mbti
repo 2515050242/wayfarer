@@ -13,16 +13,16 @@ pub fn validate_schema(String, CsvTable) -> Array[SchemaIssue]
 // Types and methods
 pub enum CsvError {
   EmptyDocument
-  EmptyHeader(line~ : Int32, column~ : Int32)
-  DuplicateHeader(name~ : String, column~ : Int32)
-  UnexpectedQuote(line~ : Int32, column~ : Int32)
-  CharactersAfterQuote(line~ : Int32, column~ : Int32)
-  UnterminatedQuote(line~ : Int32, column~ : Int32)
-  RowWidthMismatch(line~ : Int32, expected~ : Int32, actual~ : Int32)
+  EmptyHeader(line~ : Int, column~ : Int)
+  DuplicateHeader(name~ : String, column~ : Int)
+  UnexpectedQuote(line~ : Int, column~ : Int)
+  CharactersAfterQuote(line~ : Int, column~ : Int)
+  UnterminatedQuote(line~ : Int, column~ : Int)
+  RowWidthMismatch(line~ : Int, expected~ : Int, actual~ : Int)
 }
 
 pub struct CsvRow {
-  line : Int32
+  line : Int
   cells : Array[String]
 }
 pub fn CsvRow::get(Self, CsvTable, String) -> String?
@@ -31,12 +31,12 @@ pub struct CsvTable {
   headers : Array[String]
   rows : Array[CsvRow]
 }
-pub fn CsvTable::column_index(Self, String) -> Int32?
+pub fn CsvTable::column_index(Self, String) -> Int?
 
 pub struct FeedIssue {
   code : String
   file : String
-  line : Int32
+  line : Int
   column : String
   value : String
   message : String
@@ -47,8 +47,11 @@ pub(all) struct GtfsTables {
   routes : CsvTable?
   trips : CsvTable?
   stop_times : CsvTable?
+  calendar : CsvTable?
+  calendar_dates : CsvTable?
 }
 pub fn GtfsTables::new(CsvTable?, CsvTable?, CsvTable?, CsvTable?) -> Self
+pub fn GtfsTables::with_services(CsvTable?, CsvTable?, CsvTable?, CsvTable?, CsvTable?, CsvTable?) -> Self
 
 pub struct SchemaIssue {
   code : String

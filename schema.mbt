@@ -54,6 +54,7 @@ fn required_columns(table_name : String) -> Array[String] {
         "service_id", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday",
         "sunday", "start_date", "end_date",
       ]
+    "calendar_dates.txt" => ["service_id", "date", "exception_type"]
     _ => []
   }
 }

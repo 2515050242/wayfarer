@@ -8,6 +8,8 @@ pub(all) struct GtfsTables {
   routes : CsvTable?
   trips : CsvTable?
   stop_times : CsvTable?
+  calendar : CsvTable?
+  calendar_dates : CsvTable?
 }
 
 ///|
@@ -18,7 +20,27 @@ pub fn GtfsTables::new(
   trips : CsvTable?,
   stop_times : CsvTable?,
 ) -> GtfsTables {
-  GtfsTables::{ stops, routes, trips, stop_times, }
+  GtfsTables::{
+    stops,
+    routes,
+    trips,
+    stop_times,
+    calendar: None,
+    calendar_dates: None,
+  }
+}
+
+///|
+/// Create a set of core tables with optional service-calendar context.
+pub fn GtfsTables::with_services(
+  stops : CsvTable?,
+  routes : CsvTable?,
+  trips : CsvTable?,
+  stop_times : CsvTable?,
+  calendar : CsvTable?,
+  calendar_dates : CsvTable?,
+) -> GtfsTables {
+  GtfsTables::{ stops, routes, trips, stop_times, calendar, calendar_dates, }
 }
 
 ///|
@@ -37,8 +59,9 @@ pub struct FeedIssue {
 ///
 /// This checks `stops.stop_id`, `routes.route_id`, and `trips.trip_id` for
 /// uniqueness; stop-time key and schedule fields; trip-to-route and stop-time
-/// references. It does not check service IDs, conditional fields, or whether
-/// the supplied tables satisfy the required-header profile.
+/// references; and trip service references when `calendar.txt` or
+/// `calendar_dates.txt` supplies service IDs. It does not check conditional
+/// fields or whether the supplied tables satisfy the required-header profile.
 pub fn validate_feed(tables : GtfsTables) -> Array[FeedIssue] {
   let issues : Array[FeedIssue] = []
   let mut stop_ids : Map[String, Int32] = Map([])
@@ -61,6 +84,18 @@ pub fn validate_feed(tables : GtfsTables) -> Array[FeedIssue] {
     None => ()
   }
 
+  let service_ids : Map[String, Int32] = Map([])
+  match tables.calendar {
+    Some(table) =>
+      index_service_ids(table, "calendar.txt", service_ids, issues, true)
+    None => ()
+  }
+  match tables.calendar_dates {
+    Some(table) =>
+      index_service_ids(table, "calendar_dates.txt", service_ids, issues, false)
+    None => ()
+  }
+
   match (tables.trips, tables.routes) {
     (Some(trips), Some(routes)) =>
       if routes.column_index("route_id") is Some(_) {
@@ -69,6 +104,26 @@ pub fn validate_feed(tables : GtfsTables) -> Array[FeedIssue] {
         )
       }
     _ => ()
+  }
+
+  let has_calendar_service_ids = match tables.calendar {
+    Some(table) => table.column_index("service_id") is Some(_)
+    None => false
+  }
+  let has_date_service_ids = match tables.calendar_dates {
+    Some(table) => table.column_index("service_id") is Some(_)
+    None => false
+  }
+  match tables.trips {
+    Some(trips) =>
+      if (has_calendar_service_ids || has_date_service_ids) &&
+        trips.column_index("service_id") is Some(_) {
+        check_reference(
+          trips, "trips.txt", "service_id", "calendar.txt or calendar_dates.txt",
+          service_ids, issues, true,
+        )
+      }
+    None => ()
   }
 
   match (tables.stop_times, tables.trips) {
@@ -96,6 +151,46 @@ pub fn validate_feed(tables : GtfsTables) -> Array[FeedIssue] {
     _ => ()
   }
   issues
+}
+
+///|
+fn index_service_ids(
+  table : CsvTable,
+  file : String,
+  service_ids : Map[String, Int32],
+  issues : Array[FeedIssue],
+  unique_in_table : Bool,
+) -> Unit {
+  let seen : Map[String, Int32] = Map([])
+  match table.column_index("service_id") {
+    None => ()
+    Some(column_index) =>
+      for row in table.rows {
+        let value = row.cells[column_index]
+        if value == "" {
+          issues.push(FeedIssue::{
+            code: "empty_primary_key",
+            file,
+            line: row.line,
+            column: "service_id",
+            value,
+            message: "service_id value must not be empty",
+          })
+        } else if unique_in_table && seen.get(value) is Some(_) {
+          issues.push(FeedIssue::{
+            code: "duplicate_primary_key",
+            file,
+            line: row.line,
+            column: "service_id",
+            value,
+            message: "service_id is already used in this table",
+          })
+        } else {
+          seen.set(value, row.line)
+          service_ids.set(value, row.line)
+        }
+      }
+  }
 }
 
 ///|

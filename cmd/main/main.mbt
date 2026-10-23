@@ -24,6 +24,7 @@ fn main {
 
   let filenames = [
     "agency.txt", "stops.txt", "routes.txt", "trips.txt", "stop_times.txt", "calendar.txt",
+    "calendar_dates.txt",
   ]
   let required = [
     "agency.txt", "stops.txt", "routes.txt", "trips.txt", "stop_times.txt",
@@ -79,11 +80,13 @@ fn main {
     }
   }
 
-  let feed = @wayfarer.GtfsTables::new(
+  let feed = @wayfarer.GtfsTables::with_services(
     tables.get("stops.txt"),
     tables.get("routes.txt"),
     tables.get("trips.txt"),
     tables.get("stop_times.txt"),
+    tables.get("calendar.txt"),
+    tables.get("calendar_dates.txt"),
   )
   for issue in @wayfarer.validate_feed(feed) {
     println(

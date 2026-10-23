@@ -43,7 +43,7 @@ jobs:
         run: |
           output=$(moon run cmd/main examples/valid 2>&1)
           printf '%s\n' "$output"
-          printf '%s\n' "$output" | grep -Fx 'PASS (supported checks only): 6 parsed files, 8 records, 0 findings'
+          printf '%s\n' "$output" | grep -Fx 'PASS (supported checks only): 7 parsed files, 9 records, 0 findings'
 
       - name: Check invalid feed diagnostics and exit status
         shell: bash
@@ -55,6 +55,7 @@ jobs:
           printf '%s\n' "$output"
           test "$status" -eq 1
           printf '%s\n' "$output" | grep -F 'ERROR trips.txt:2 route_id="UNKNOWN" [unresolved_reference]'
+          printf '%s\n' "$output" | grep -F 'ERROR trips.txt:2 service_id="MISSING" [unresolved_reference]'
           printf '%s\n' "$output" | grep -F 'ERROR stop_times.txt:2 arrival_time="25:60:00" [invalid_time]'
           printf '%s\n' "$output" | grep -F 'ERROR stop_times.txt:2 departure_time="25:61:00" [invalid_time]'
-          printf '%s\n' "$output" | grep -F 'FAIL: 5 parsed files, 5 records, 3 findings'
+          printf '%s\n' "$output" | grep -F 'FAIL: 6 parsed files, 6 records, 4 findings'

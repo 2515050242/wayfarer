@@ -21,6 +21,7 @@ conformance checker.
 | `trips.txt` | `route_id`, `service_id`, `trip_id` |
 | `stop_times.txt` | `trip_id`, `stop_sequence` |
 | `calendar.txt` | `service_id`, weekday flags, `start_date`, `end_date` |
+| `calendar_dates.txt` | `service_id`, `date`, `exception_type` |
 
 ## Feed relationship checks
 
@@ -30,6 +31,8 @@ conformance checker.
   supported table.
 - `(trip_id, stop_sequence)` is present and unique in `stop_times.txt`.
 - Each `trips.route_id` resolves to `routes.route_id`.
+- When `calendar.txt` or `calendar_dates.txt` is supplied with a `service_id`
+  column, each `trips.service_id` resolves to the union of those service IDs.
 - Each `stop_times.trip_id` resolves to `trips.trip_id`.
 - A non-empty `stop_times.stop_id` resolves to `stops.stop_id`.
 - `stop_sequence` is a non-negative integer and unique within each trip. Gaps
@@ -42,11 +45,14 @@ conformance checker.
 Findings include the source file, physical CSV line, field, offending value,
 stable code, and a short explanation. Missing table context skips checks that
 need that table; callers should run `validate_schema` for each supplied table
-as well. An empty `stop_times.stop_id` is allowed here because that field is
-conditionally required by GTFS. The validator does not yet check service ID
-relationships, stop hierarchy, location groups or GeoJSON ID collisions,
-conditional field requirements, `timepoint` rules, or whether clock values
-progress monotonically along a trip. GTFS defines `stop_sequence` as the order
+as well. Trip service IDs are checked only when at least one service table
+provides its `service_id` column; `calendar_dates.txt` may provide service IDs
+without a weekly `calendar.txt`. This check does not validate service dates or
+exception types. An empty `stop_times.stop_id` is allowed here because that field is
+conditionally required by GTFS. The validator does not yet check stop
+hierarchy, location groups or GeoJSON ID collisions, conditional field
+requirements, `timepoint` rules, or whether clock values progress monotonically
+along a trip. GTFS defines `stop_sequence` as the order
 of stops along a trip; this validator uses the numeric sequence values and does
 not require CSV rows to be sorted. The Schedule reference does not specify a
 mandatory time ordering rule, so unusual but well-formed time values are not
@@ -74,7 +80,7 @@ Expected output:
 
 ```text
 Wayfarer: checking examples/valid
-PASS (supported checks only): 6 parsed files, 8 records, 0 findings
+PASS (supported checks only): 7 parsed files, 9 records, 0 findings
 ```
 
 To see actionable errors, run the failing fixture:
@@ -87,15 +93,18 @@ It exits with status 1 and includes diagnostics such as:
 
 ```text
 ERROR trips.txt:2 route_id="UNKNOWN" [unresolved_reference] referenced ID does not exist in routes.txt
+ERROR trips.txt:2 service_id="MISSING" [unresolved_reference] referenced ID does not exist in calendar.txt or calendar_dates.txt
 ERROR stop_times.txt:2 arrival_time="25:60:00" [invalid_time] time must use H:MM:SS or HH:MM:SS with minutes and seconds from 00 to 59
 ERROR stop_times.txt:2 departure_time="25:61:00" [invalid_time] time must use H:MM:SS or HH:MM:SS with minutes and seconds from 00 to 59
-FAIL: 5 parsed files, 5 records, 3 findings
+FAIL: 6 parsed files, 6 records, 4 findings
 ```
 
 The folder must contain `agency.txt`, `stops.txt`, `routes.txt`, `trips.txt`,
-and `stop_times.txt`; `calendar.txt` is checked when present. Other GTFS tables
-are currently ignored, so location-based on-demand feeds are outside this
-command's supported input profile. The checker reads files as UTF-8 and uses
+and `stop_times.txt`; `calendar.txt` and `calendar_dates.txt` are checked when
+present. If either service table is available, trips' `service_id` values are
+checked against the IDs it defines. Other GTFS tables are currently ignored,
+so location-based on-demand feeds are outside this command's supported input
+profile. The checker reads files as UTF-8 and uses
 the host path separator, so the same relative commands work in PowerShell and
 POSIX shells. It does not extract ZIP archives. `moon test` runs the library's
 unit fixtures, including parsing, schema, feed references, time formats, and
@@ -103,9 +112,11 @@ sequence boundaries.
 
 The public library API exposes `parse_csv` for CSV text, `validate_schema` for
 checking the header profile of one supported table, and `validate_feed` for
-the relationship and stop-time checks above. Parsing failures and schema/feed
-findings use structured result types. A caller can build `GtfsTables` from the
-results of `parse_csv` and pass the available tables to `validate_feed`.
+the relationship and stop-time checks above. `GtfsTables::new` accepts the
+core tables; `GtfsTables::with_services` also accepts optional `calendar.txt`
+and `calendar_dates.txt` context. Parsing failures and schema/feed findings
+use structured result types. A caller can build `GtfsTables` from the results
+of `parse_csv` and pass the available tables to `validate_feed`.
 
 The `cmd/main` executable connects these APIs to a local feed directory. Its
 only external module dependency is `moonbitlang/x` 0.5.6 for filesystem, path,

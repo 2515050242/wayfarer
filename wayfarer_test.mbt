@@ -89,14 +89,15 @@ test "rejects data after a closing quote" {
 }
 
 ///|
-test "reports unsupported tables instead of silently passing them" {
-  let table = match @wayfarer.parse_csv("stop_id\nA1") {
+test "checks required columns for calendar_dates" {
+  let table = match @wayfarer.parse_csv("date,exception_type\n20260101,1") {
     Ok(table) => table
     Err(_) => fail("expected a valid CSV document")
   }
   let issues = @wayfarer.validate_schema("calendar_dates.txt", table)
   assert_eq(issues.length(), 1)
-  assert_eq(issues[0].code, "unsupported_table")
+  assert_eq(issues[0].code, "missing_required_header")
+  assert_eq(issues[0].column, "service_id")
 }
 
 ///|
@@ -148,6 +149,81 @@ test "validates references across a minimal feed" {
 }
 
 ///|
+test "resolves trip service IDs from calendar or calendar_dates" {
+  let trips = parse_test_table("route_id,service_id,trip_id\nR1,WK,T1")
+  let calendar = parse_test_table("service_id\nWK")
+  let calendar_dates = parse_test_table(
+    "service_id,date,exception_type\nWK,20260101,1\nWK,20260102,2",
+  )
+  let from_calendar = @wayfarer.validate_feed(
+    @wayfarer.GtfsTables::with_services(
+      None,
+      None,
+      Some(trips),
+      None,
+      Some(calendar),
+      None,
+    ),
+  )
+  assert_eq(from_calendar.length(), 0)
+  let from_dates = @wayfarer.validate_feed(
+    @wayfarer.GtfsTables::with_services(
+      None,
+      None,
+      Some(trips),
+      None,
+      None,
+      Some(calendar_dates),
+    ),
+  )
+  assert_eq(from_dates.length(), 0)
+}
+
+///|
+test "accepts service IDs supplied across both calendar tables" {
+  let trips = parse_test_table(
+    "route_id,service_id,trip_id\nR1,WEEK,T1\nR1,EXTRA,T2",
+  )
+  let calendar = parse_test_table("service_id\nWEEK")
+  let calendar_dates = parse_test_table(
+    "service_id,date,exception_type\nEXTRA,20260101,1",
+  )
+  let issues = @wayfarer.validate_feed(
+    @wayfarer.GtfsTables::with_services(
+      None,
+      None,
+      Some(trips),
+      None,
+      Some(calendar),
+      Some(calendar_dates),
+    ),
+  )
+  assert_eq(issues.length(), 0)
+}
+
+///|
+test "reports a trip service ID absent from supplied calendar tables" {
+  let trips = parse_test_table("route_id,service_id,trip_id\nR1,MISSING,T1")
+  let calendar = parse_test_table("service_id\nWK")
+  let issues = @wayfarer.validate_feed(
+    @wayfarer.GtfsTables::with_services(
+      None,
+      None,
+      Some(trips),
+      None,
+      Some(calendar),
+      None,
+    ),
+  )
+  assert_eq(issues.length(), 1)
+  assert_eq(issues[0].code, "unresolved_reference")
+  assert_eq(issues[0].file, "trips.txt")
+  assert_eq(issues[0].line, 2)
+  assert_eq(issues[0].column, "service_id")
+  assert_eq(issues[0].value, "MISSING")
+}
+
+///|
 test "reports duplicate primary keys and the composite stop time key" {
   let tables = @wayfarer.GtfsTables::{
     stops: Some(parse_test_table("stop_id\nS1\nS1")),
@@ -158,6 +234,8 @@ test "reports duplicate primary keys and the composite stop time key" {
     stop_times: Some(
       parse_test_table("trip_id,stop_sequence,stop_id\nT1,1,S1\nT1,1,S1"),
     ),
+    calendar: None,
+    calendar_dates: None,
   }
   let issues = @wayfarer.validate_feed(tables)
   assert_eq(issues.length(), 4)
