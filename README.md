@@ -32,8 +32,9 @@ conformance checker.
 - Each `trips.route_id` resolves to `routes.route_id`.
 - Each `stop_times.trip_id` resolves to `trips.trip_id`.
 - A non-empty `stop_times.stop_id` resolves to `stops.stop_id`.
-- `stop_sequence` is a non-negative integer and increases within each trip in
-  file order. Gaps are accepted, as the specification allows.
+- `stop_sequence` is a non-negative integer and unique within each trip. Gaps
+  are accepted. Its numeric value defines stop order; CSV rows need not be
+  physically sorted by that value.
 - Non-empty `arrival_time` and `departure_time` values use `H:MM:SS` or
   `HH:MM:SS`; minute and second values must be from `00` to `59`. Hours above
   24 are accepted for service after midnight.
@@ -45,10 +46,11 @@ as well. An empty `stop_times.stop_id` is allowed here because that field is
 conditionally required by GTFS. The validator does not yet check service ID
 relationships, stop hierarchy, location groups or GeoJSON ID collisions,
 conditional field requirements, `timepoint` rules, or whether clock values
-progress monotonically along a trip. GTFS defines increasing `stop_sequence`
-values, but the Schedule reference does not specify a matching mandatory time
-ordering rule, so unusual but well-formed time values are not rejected on that
-basis. See the
+progress monotonically along a trip. GTFS defines `stop_sequence` as the order
+of stops along a trip; this validator uses the numeric sequence values and does
+not require CSV rows to be sorted. The Schedule reference does not specify a
+mandatory time ordering rule, so unusual but well-formed time values are not
+rejected on that basis. See the
 [GTFS Schedule reference](https://gtfs.org/documentation/schedule/reference/)
 for the complete specification.
 

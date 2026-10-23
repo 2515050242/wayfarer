@@ -314,16 +314,22 @@ test "accepts valid H time notation and does not impose time monotonicity" {
 }
 
 ///|
-test "reports negative, non-integer, and decreasing stop sequences" {
+test "reports negative and non-integer stop sequences" {
   let issues = validate_stop_time_fixture(
     "trip_id,stop_sequence\nT1,-1\nT2,2.5\nT3,4\nT3,2",
   )
-  assert_eq(issues.length(), 3)
+  assert_eq(issues.length(), 2)
   assert_eq(issues[0].code, "invalid_stop_sequence")
   assert_eq(issues[0].line, 2)
   assert_eq(issues[1].code, "invalid_stop_sequence")
-  assert_eq(issues[2].code, "stop_sequence_not_increasing")
-  assert_eq(issues[2].line, 5)
+}
+
+///|
+test "uses unique sequence values as trip order regardless of CSV row order" {
+  let issues = validate_stop_time_fixture(
+    "trip_id,stop_sequence\nT1,20\nT1,10\nT1,40",
+  )
+  assert_eq(issues.length(), 0)
 }
 
 ///|

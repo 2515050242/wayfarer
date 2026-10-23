@@ -188,7 +188,6 @@ fn check_stop_time_semantics(
   match (table.column_index("trip_id"), table.column_index("stop_sequence")) {
     (Some(trip_column), Some(sequence_column)) => {
       let sequences : Map[String, Map[Int32, Int32]] = Map([])
-      let previous : Map[String, Int32] = Map([])
       for row in table.rows {
         let trip_id = row.cells[trip_column]
         let sequence_text = row.cells[sequence_column]
@@ -245,21 +244,6 @@ fn check_stop_time_semantics(
                 })
               } else {
                 seen.set(sequence, row.line)
-                match previous.get(trip_id) {
-                  Some(last) =>
-                    if sequence < last {
-                      issues.push(FeedIssue::{
-                        code: "stop_sequence_not_increasing",
-                        file: "stop_times.txt",
-                        line: row.line,
-                        column: "stop_sequence",
-                        value: sequence_text,
-                        message: "stop_sequence must increase along each trip",
-                      })
-                    }
-                  None => ()
-                }
-                previous.set(trip_id, sequence)
               }
             }
         }
