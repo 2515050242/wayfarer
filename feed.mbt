@@ -330,9 +330,12 @@ fn check_stop_time_semantics(
   table : CsvTable,
   issues : Array[FeedIssue],
 ) -> Unit {
+  let timed_stops : Array[TimedStop] = []
   match (table.column_index("trip_id"), table.column_index("stop_sequence")) {
     (Some(trip_column), Some(sequence_column)) => {
       let sequences : Map[String, Map[Int32, Int32]] = Map([])
+      let arrival_column = table.column_index("arrival_time")
+      let departure_column = table.column_index("departure_time")
       for row in table.rows {
         let trip_id = row.cells[trip_column]
         let sequence_text = row.cells[sequence_column]
@@ -389,6 +392,23 @@ fn check_stop_time_semantics(
                 })
               } else {
                 seen.set(sequence, row.line)
+                let arrival_text = match arrival_column {
+                  Some(column) => row.cells[column]
+                  None => ""
+                }
+                let departure_text = match departure_column {
+                  Some(column) => row.cells[column]
+                  None => ""
+                }
+                timed_stops.push(TimedStop::{
+                  trip_id,
+                  sequence,
+                  line: row.line,
+                  arrival_text,
+                  arrival_seconds: gtfs_time_seconds(arrival_text),
+                  departure_text,
+                  departure_seconds: gtfs_time_seconds(departure_text),
+                })
               }
             }
         }
@@ -398,6 +418,93 @@ fn check_stop_time_semantics(
   }
   check_stop_time_column(table, "arrival_time", issues)
   check_stop_time_column(table, "departure_time", issues)
+  check_stop_time_order(timed_stops, issues)
+}
+
+///|
+priv struct TimedStop {
+  trip_id : String
+  sequence : Int32
+  line : Int32
+  arrival_text : String
+  arrival_seconds : Int32?
+  departure_text : String
+  departure_seconds : Int32?
+}
+
+///|
+fn check_stop_time_order(
+  timed_stops : Array[TimedStop],
+  issues : Array[FeedIssue],
+) -> Unit {
+  timed_stops.sort_by(fn(a, b) {
+    if a.trip_id < b.trip_id {
+      -1
+    } else if a.trip_id > b.trip_id {
+      1
+    } else if a.sequence < b.sequence {
+      -1
+    } else if a.sequence > b.sequence {
+      1
+    } else {
+      0
+    }
+  })
+  let mut previous_trip = ""
+  let mut previous_time : Int32? = None
+  for stop in timed_stops {
+    if previous_trip != stop.trip_id {
+      previous_trip = stop.trip_id
+      previous_time = None
+    }
+    previous_time = check_time_order_event(
+      stop.arrival_text,
+      stop.arrival_seconds,
+      "arrival_time",
+      stop,
+      previous_time,
+      issues,
+    )
+    previous_time = check_time_order_event(
+      stop.departure_text,
+      stop.departure_seconds,
+      "departure_time",
+      stop,
+      previous_time,
+      issues,
+    )
+  }
+}
+
+///|
+fn check_time_order_event(
+  value : String,
+  seconds : Int32?,
+  column : String,
+  stop : TimedStop,
+  previous_time : Int32?,
+  issues : Array[FeedIssue],
+) -> Int32? {
+  match seconds {
+    None => previous_time
+    Some(current_time) => {
+      match previous_time {
+        Some(previous) =>
+          if current_time < previous {
+            issues.push(FeedIssue::{
+              code: "time_order_violation",
+              file: "stop_times.txt",
+              line: stop.line,
+              column,
+              value,
+              message: "time precedes an earlier defined time in this trip's stop_sequence order",
+            })
+          }
+        None => ()
+      }
+      Some(current_time)
+    }
+  }
 }
 
 ///|
@@ -422,6 +529,24 @@ fn check_stop_time_column(
           })
         }
       }
+  }
+}
+
+///|
+fn gtfs_time_seconds(value : String) -> Int32? {
+  if !is_gtfs_time(value) {
+    None
+  } else {
+    let hour_digits = value.length() - 6
+    let mut hours = 0
+    for index in 0..<hour_digits {
+      hours = hours * 10 + value.code_unit_at(index).to_int() - 48
+    }
+    Some(
+      hours * 3600 +
+      two_digits(value, hour_digits + 1) * 60 +
+      two_digits(value, hour_digits + 4),
+    )
   }
 }
 

@@ -43,6 +43,9 @@ conformance checker.
 - Non-empty `arrival_time` and `departure_time` values use `H:MM:SS` or
   `HH:MM:SS`; minute and second values must be from `00` to `59`. Hours above
   24 are accepted for service after midnight.
+- Provided arrival and departure times do not move backward when stop rows are
+  read in `trip_id` and numeric `stop_sequence` order. Equal consecutive times
+  are accepted, and blank or malformed times are excluded from this comparison.
 
 Findings include the source file, physical CSV line, field, offending value,
 stable code, and a short explanation. Missing table context skips checks that
@@ -53,13 +56,10 @@ without a weekly `calendar.txt`. This check does not validate calendar date
 syntax, date ranges, or `exception_type` values. An empty `stop_times.stop_id` is
 allowed here because that field is conditionally required by GTFS. The
 validator does not yet check stop hierarchy, location groups or GeoJSON ID
-collisions, conditional field
-requirements, `timepoint` rules, or whether clock values progress monotonically
-along a trip. GTFS defines `stop_sequence` as the order
-of stops along a trip; this validator uses the numeric sequence values and does
-not require CSV rows to be sorted. The Schedule reference does not specify a
-mandatory time ordering rule, so unusual but well-formed time values are not
-rejected on that basis. See the
+collisions, conditional field requirements, `timepoint` rules, or other
+conditional stop-time fields. GTFS defines `stop_sequence` as the order of
+stops along a trip; this validator uses the numeric sequence values and does
+not require CSV rows to be sorted. See the
 [GTFS Schedule reference](https://gtfs.org/documentation/schedule/reference/)
 for the complete specification.
 
@@ -100,7 +100,8 @@ ERROR trips.txt:2 route_id="UNKNOWN" [unresolved_reference] referenced ID does n
 ERROR trips.txt:2 service_id="MISSING" [unresolved_reference] referenced ID does not exist in calendar.txt or calendar_dates.txt
 ERROR stop_times.txt:2 arrival_time="25:60:00" [invalid_time] time must use H:MM:SS or HH:MM:SS with minutes and seconds from 00 to 59
 ERROR stop_times.txt:2 departure_time="25:61:00" [invalid_time] time must use H:MM:SS or HH:MM:SS with minutes and seconds from 00 to 59
-FAIL: 6 parsed files, 7 records, 5 findings
+ERROR stop_times.txt:4 arrival_time="25:00:00" [time_order_violation] time precedes an earlier defined time in this trip's stop_sequence order
+FAIL: 6 parsed files, 9 records, 6 findings
 ```
 
 The folder must contain `agency.txt`, `stops.txt`, `routes.txt`, `trips.txt`,
@@ -111,8 +112,8 @@ so location-based on-demand feeds are outside this command's supported input
 profile. The checker reads files as UTF-8 and uses
 the host path separator, so the same relative commands work in PowerShell and
 POSIX shells. It does not extract ZIP archives. `moon test` runs the library's
-unit fixtures, including parsing, schema, feed references, time formats, and
-sequence boundaries.
+unit fixtures, including parsing, schema, feed references, time formats,
+time ordering, and sequence boundaries.
 
 The public library API exposes `parse_csv` for CSV text, `validate_schema` for
 checking the header profile of one supported table, and `validate_feed` for

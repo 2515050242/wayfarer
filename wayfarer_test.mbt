@@ -451,11 +451,23 @@ test "accepts sequence gaps and service-day times after midnight" {
 }
 
 ///|
-test "accepts valid H time notation and does not impose time monotonicity" {
+test "accepts equal arrival and departure times with single-digit hours" {
+  let issues = validate_stop_time_fixture(
+    "trip_id,stop_sequence,arrival_time,departure_time\nT1,1,9:05:07,9:05:07\nT1,2,9:05:07,9:05:07",
+  )
+  assert_eq(issues.length(), 0)
+}
+
+///|
+test "reports a time reversal in stop sequence order" {
   let issues = validate_stop_time_fixture(
     "trip_id,stop_sequence,arrival_time,departure_time\nT1,1,9:05:07,9:05:07\nT1,2,8:00:00,8:00:00",
   )
-  assert_eq(issues.length(), 0)
+  assert_eq(issues.length(), 1)
+  assert_eq(issues[0].code, "time_order_violation")
+  assert_eq(issues[0].line, 3)
+  assert_eq(issues[0].column, "arrival_time")
+  assert_eq(issues[0].value, "8:00:00")
 }
 
 ///|
@@ -472,7 +484,7 @@ test "reports negative and non-integer stop sequences" {
 ///|
 test "uses unique sequence values as trip order regardless of CSV row order" {
   let issues = validate_stop_time_fixture(
-    "trip_id,stop_sequence\nT1,20\nT1,10\nT1,40",
+    "trip_id,stop_sequence,arrival_time,departure_time\nT1,20,25:35:00,25:36:00\nT1,10,23:59:00,23:59:00\nT1,40,26:00:00,26:01:00",
   )
   assert_eq(issues.length(), 0)
 }

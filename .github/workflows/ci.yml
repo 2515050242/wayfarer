@@ -58,5 +58,6 @@ jobs:
           printf '%s\n' "$output" | grep -F 'ERROR trips.txt:2 service_id="MISSING" [unresolved_reference]'
           printf '%s\n' "$output" | grep -F 'ERROR stop_times.txt:2 arrival_time="25:60:00" [invalid_time]'
           printf '%s\n' "$output" | grep -F 'ERROR stop_times.txt:2 departure_time="25:61:00" [invalid_time]'
+          printf '%s\n' "$output" | grep -F 'ERROR stop_times.txt:4 arrival_time="25:00:00" [time_order_violation]'
           printf '%s\n' "$output" | grep -F 'ERROR calendar_dates.txt:3 service_id,date="WK,20261031" [duplicate_primary_key]'
-          printf '%s\n' "$output" | grep -F 'FAIL: 6 parsed files, 7 records, 5 findings'
+          printf '%s\n' "$output" | grep -F 'FAIL: 6 parsed files, 9 records, 6 findings'
