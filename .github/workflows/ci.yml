@@ -45,6 +45,44 @@ jobs:
           printf '%s\n' "$output"
           printf '%s\n' "$output" | grep -Fx 'PASS (supported checks only): 7 parsed files, 9 records, 0 findings'
 
+      - name: Reject empty required tables and one-stop trips
+        shell: bash
+        run: |
+          set +e
+          empty_output=$(moon run cmd/main examples/header-only-required-table 2>&1)
+          empty_status=$?
+          one_stop_output=$(moon run cmd/main examples/single-stop-trip 2>&1)
+          one_stop_status=$?
+          set -e
+          printf '%s\n' "$empty_output"
+          test "$empty_status" -eq 1
+          printf '%s\n' "$empty_output" | grep -Fx 'ERROR agency.txt:1 [empty_required_table] required table must contain at least one data record'
+          printf '%s\n' "$empty_output" | grep -Fx 'FAIL: 6 parsed files, 7 records, 1 finding'
+          printf '%s\n' "$one_stop_output"
+          test "$one_stop_status" -eq 1
+          printf '%s\n' "$one_stop_output" | grep -Fx 'ERROR trips.txt:2 trip_id="T1" [insufficient_stop_times] trip must have at least two stop_times records'
+          printf '%s\n' "$one_stop_output" | grep -Fx 'FAIL: 6 parsed files, 6 records, 1 finding'
+
+      - name: Reject forbidden GTFS field values and escape diagnostics
+        shell: bash
+        run: |
+          set +e
+          field_output=$(moon run cmd/main examples/field-value-errors 2>&1)
+          field_status=$?
+          control_output=$(moon run cmd/main examples/control-character-diagnostic 2>&1)
+          control_status=$?
+          set -e
+          printf '%s\n' "$field_output"
+          test "$field_status" -eq 1
+          printf '%s\n' "$field_output" | grep -Fx 'ERROR stops.txt:2 stop_name="Platform \"East\"\tA" [forbidden_field_character] GTFS field values must not contain tabs, carriage returns, or newlines'
+          printf '%s\n' "$field_output" | grep -Fx 'ERROR stops.txt:3 stop_name="North\nAnnex" [forbidden_field_character] GTFS field values must not contain tabs, carriage returns, or newlines'
+          printf '%s\n' "$field_output" | grep -Fx 'ERROR stops.txt:5 stop_name="South\tGate" [forbidden_field_character] GTFS field values must not contain tabs, carriage returns, or newlines'
+          printf '%s\n' "$field_output" | grep -Fx 'FAIL: 6 parsed files, 9 records, 3 findings'
+          printf '%s\n' "$control_output"
+          test "$control_status" -eq 1
+          printf '%s\n' "$control_output" | grep -Fx 'ERROR trips.txt:2 service_id="WK\u001b[31m" [unresolved_reference] referenced ID does not exist in calendar.txt or calendar_dates.txt'
+          printf '%s\n' "$control_output" | grep -Fx 'FAIL: 6 parsed files, 8 records, 1 finding'
+
       - name: Reject unsupported flexible-location feed
         shell: bash
         run: |
@@ -56,7 +94,7 @@ jobs:
           test "$status" -eq 1
           printf '%s\n' "$output" | grep -F 'ERROR locations.geojson [unsupported_location_profile]'
           printf '%s\n' "$output" | grep -F 'ERROR stop_times.txt:2 location_id="ZONE-1" [unsupported_location_profile]'
-          printf '%s\n' "$output" | grep -Fx 'FAIL: 6 parsed files, 6 records, 2 findings'
+          printf '%s\n' "$output" | grep -Fx 'FAIL: 6 parsed files, 7 records, 2 findings'
 
       - name: Reject feeds without a service calendar
         shell: bash
@@ -86,3 +124,88 @@ jobs:
           printf '%s\n' "$output" | grep -F 'ERROR stop_times.txt:4 arrival_time="25:00:00" [time_order_violation]'
           printf '%s\n' "$output" | grep -F 'ERROR calendar_dates.txt:3 service_id,date="WK,20261031" [duplicate_primary_key]'
           printf '%s\n' "$output" | grep -F 'FAIL: 6 parsed files, 9 records, 6 findings'
+
+  validate-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v5
+
+      - name: Install MoonBit
+        shell: pwsh
+        run: |
+          irm https://cli.moonbitlang.com/install/powershell.ps1 | iex
+          $moonBin = Join-Path $HOME '.moon\bin'
+          if (-not (Test-Path (Join-Path $moonBin 'moon.exe'))) {
+            throw "MoonBit installation did not create $moonBin\moon.exe"
+          }
+          Add-Content -Path $env:GITHUB_PATH -Value $moonBin
+          $env:PATH = "$moonBin;$env:PATH"
+          moon version --all
+
+      - name: Update MoonBit package registry
+        shell: pwsh
+        run: moon update
+
+      - name: Check formatting and package
+        shell: pwsh
+        run: |
+          moon fmt --check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          moon check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Check generated public interface
+        shell: pwsh
+        run: |
+          moon info
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git diff --exit-code -- pkg.generated.mbti
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run unit tests
+        shell: pwsh
+        run: moon test
+
+      - name: Run passing feed and verify failures
+        shell: pwsh
+        run: |
+          $valid = & moon run cmd/main examples/valid 2>&1
+          $validStatus = $LASTEXITCODE
+          $validText = $valid -join "`n"
+          Write-Output $validText
+          if ($validStatus -ne 0 -or -not $validText.Contains('PASS (supported checks only): 7 parsed files, 9 records, 0 findings')) {
+            throw 'The bundled valid feed did not pass with the documented summary.'
+          }
+
+          function Assert-Failure([string]$fixture, [string[]]$expected) {
+            $output = & moon run cmd/main $fixture 2>&1
+            $status = $LASTEXITCODE
+            $text = $output -join "`n"
+            Write-Output $text
+            if ($status -ne 1) { throw "$fixture should exit with status 1; got $status." }
+            foreach ($line in $expected) {
+              if (-not $text.Contains($line)) { throw "$fixture did not contain expected diagnostic: $line" }
+            }
+            $global:LASTEXITCODE = 0
+          }
+
+          Assert-Failure 'examples/header-only-required-table' @(
+            'ERROR agency.txt:1 [empty_required_table] required table must contain at least one data record',
+            'FAIL: 6 parsed files, 7 records, 1 finding'
+          )
+          Assert-Failure 'examples/single-stop-trip' @(
+            'ERROR trips.txt:2 trip_id="T1" [insufficient_stop_times] trip must have at least two stop_times records',
+            'FAIL: 6 parsed files, 6 records, 1 finding'
+          )
+          Assert-Failure 'examples/field-value-errors' @(
+            'ERROR stops.txt:2 stop_name="Platform \"East\"\tA" [forbidden_field_character]',
+            'ERROR stops.txt:3 stop_name="North\nAnnex" [forbidden_field_character]',
+            'ERROR stops.txt:5 stop_name="South\tGate" [forbidden_field_character]',
+            'FAIL: 6 parsed files, 9 records, 3 findings'
+          )
+          Assert-Failure 'examples/control-character-diagnostic' @(
+            'ERROR trips.txt:2 service_id="WK\u001b[31m" [unresolved_reference]',
+            'FAIL: 6 parsed files, 8 records, 1 finding'
+          )
+          exit 0

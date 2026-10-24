@@ -8,8 +8,11 @@ checks.
 The current increments establish a strict CSV input layer and core feed checks:
 source-located CSV parsing, rectangular-row and required-header checks, selected
 identifiers and references between core GTFS tables, and key stop-time schedule
-fields. This is a deliberately limited validator, not a complete GTFS
-conformance checker.
+fields. Wayfarer is a bounded local checker for a supported GTFS Schedule
+profile. It complements, and does not replace, a full canonical GTFS validator.
+
+Every bundled feed under `examples/` is a synthetic, minimal fixture created for
+reproducible checks. None is presented as data from a transit operator.
 
 ## Current coverage
 
@@ -22,6 +25,15 @@ conformance checker.
 | `stop_times.txt` | `trip_id`, `stop_sequence` |
 | `calendar.txt` | `service_id`, weekday flags, `start_date`, `end_date` |
 | `calendar_dates.txt` | `service_id`, `date`, `exception_type` |
+
+`validate_schema` checks only these required header names when a listed table is
+passed to it. It does not validate every field's type, enum, conditional
+presence, or cross-file rule. For example, `route_type`, calendar weekday flags,
+calendar date syntax and ranges, and `exception_type` values are not yet checked.
+The directory CLI additionally requires at least one data row in `agency.txt`,
+`stops.txt`, `routes.txt`, and `trips.txt`, and requires each declared trip to
+have at least two `stop_times.txt` records. These checks prevent a header-only
+or one-stop feed from being reported as passing the supported profile.
 
 ## Feed relationship checks
 
@@ -62,8 +74,15 @@ conformance checker.
 
 Findings include the source file, physical CSV line, field, offending value,
 stable code, and a short explanation. Missing table context skips checks that
-need that table; callers should run `validate_schema` for each supplied table
-as well. Trip service IDs are checked only when at least one service table
+need that table; callers should run `validate_schema` and
+`validate_gtfs_field_values` for each parsed table as well. The directory CLI
+runs both checks on its supported files. GTFS field values containing a tab,
+carriage return, or line feed are rejected. LF and CRLF remain valid CSV record
+separators; line breaks inside quoted CSV cells are normalized by the parser,
+then rejected as field values with a file, physical record line, and field
+diagnostic. A standalone CR cannot end a record. Diagnostic values escape
+quotes, backslashes, and control characters so each finding remains one stable
+output line. Trip service IDs are checked only when at least one service table
 provides its `service_id` column; `calendar_dates.txt` may provide service IDs
 without a weekly `calendar.txt`. This check does not validate calendar date
 syntax, date ranges, or `exception_type` values. This release supports fixed
@@ -122,6 +141,48 @@ ERROR stop_times.txt:4 arrival_time="25:00:00" [time_order_violation] time prece
 FAIL: 6 parsed files, 9 records, 6 findings
 ```
 
+The following isolated fixtures demonstrate the minimum-record and GTFS field
+value checks. The field-value fixture covers a quoted tab, CRLF normalized
+inside a quoted value, and an unquoted tab. Each command exits with status 1:
+
+```text
+moon run cmd/main examples/header-only-required-table
+```
+
+```text
+ERROR agency.txt:1 [empty_required_table] required table must contain at least one data record
+FAIL: 6 parsed files, 7 records, 1 finding
+```
+
+```text
+moon run cmd/main examples/single-stop-trip
+```
+
+```text
+ERROR trips.txt:2 trip_id="T1" [insufficient_stop_times] trip must have at least two stop_times records
+FAIL: 6 parsed files, 6 records, 1 finding
+```
+
+```text
+moon run cmd/main examples/field-value-errors
+```
+
+```text
+ERROR stops.txt:2 stop_name="Platform \"East\"\tA" [forbidden_field_character] GTFS field values must not contain tabs, carriage returns, or newlines
+ERROR stops.txt:3 stop_name="North\nAnnex" [forbidden_field_character] GTFS field values must not contain tabs, carriage returns, or newlines
+ERROR stops.txt:5 stop_name="South\tGate" [forbidden_field_character] GTFS field values must not contain tabs, carriage returns, or newlines
+FAIL: 6 parsed files, 9 records, 3 findings
+```
+
+Diagnostic output also escapes other control characters in values. This
+synthetic record uses an unresolved service ID containing an escape character:
+
+```text
+moon run cmd/main examples/control-character-diagnostic
+ERROR trips.txt:2 service_id="WK\u001b[31m" [unresolved_reference] referenced ID does not exist in calendar.txt or calendar_dates.txt
+FAIL: 6 parsed files, 8 records, 1 finding
+```
+
 The CLI also enforces the GTFS service-calendar file requirement. A feed must
 include `calendar.txt` or `calendar_dates.txt`; this fixture shows the result
 when both are absent:
@@ -153,18 +214,20 @@ It exits with status 1. The diagnostic summary includes:
 ```text
 ERROR locations.geojson [unsupported_location_profile] location-based on-demand data is outside the supported fixed-stop profile
 ERROR stop_times.txt:2 location_id="ZONE-1" [unsupported_location_profile] flexible-location records using location_group_id or location_id are outside the supported fixed-stop profile
-FAIL: 6 parsed files, 6 records, 2 findings
+FAIL: 6 parsed files, 7 records, 2 findings
 ```
 
-The checker reads files as UTF-8 and uses
-the host path separator, so the same relative commands work in PowerShell and
-POSIX shells. It does not extract ZIP archives. `moon test` runs the library's
-unit fixtures, including parsing, schema, feed references, time formats,
-time ordering, and sequence boundaries.
+The checker reads files as UTF-8 and uses the host path separator. The same
+relative commands work in PowerShell and POSIX shells; CI runs the parser,
+checks, tests, and CLI examples on Linux and Windows. It does not extract ZIP
+archives. `moon test` runs the library's unit fixtures, including parsing,
+schema, forbidden field values, feed references, minimum trip stops, time
+formats, time ordering, and sequence boundaries.
 
 The public library API exposes `parse_csv` for CSV text, `validate_schema` for
-checking the header profile of one supported table, and `validate_feed` for
-the relationship and stop-time checks above. `GtfsTables::new` accepts the
+checking the header profile of one supported table,
+`validate_gtfs_field_values` for forbidden characters in a parsed table, and
+`validate_feed` for the relationship and stop-time checks above. `GtfsTables::new` accepts the
 core tables; `GtfsTables::with_services` also accepts optional `calendar.txt`
 and `calendar_dates.txt` context. Parsing failures and schema/feed findings
 use structured result types. A caller can build `GtfsTables` from the results
@@ -192,8 +255,9 @@ moon check
 moon test
 ```
 
-The GitHub Actions workflow runs formatting, package checks, and tests on pushes
-and pull requests.
+The GitHub Actions workflow runs formatting, package checks, generated-interface
+consistency, unit tests, and valid/invalid directory examples on Linux and
+Windows for pushes and pull requests.
 
 ## Specification
 

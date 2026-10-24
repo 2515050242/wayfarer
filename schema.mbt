@@ -7,6 +7,52 @@ pub struct SchemaIssue {
   message : String
 }
 
+///|
+/// A GTFS field value that contains a forbidden control character.
+pub struct FieldValueIssue {
+  code : String
+  file : String
+  line : Int32
+  column : String
+  value : String
+  message : String
+}
+
+///|
+/// Reject tabs, carriage returns, and newlines in parsed GTFS field values.
+///
+/// CSV row separators are consumed by `parse_csv`, and quoted newlines are
+/// retained as normalized LF characters in the field value so they can be
+/// diagnosed here with the source record and field.
+pub fn validate_gtfs_field_values(
+  file : String,
+  table : CsvTable,
+) -> Array[FieldValueIssue] {
+  let issues : Array[FieldValueIssue] = []
+  for row in table.rows {
+    for column_index, column in table.headers {
+      let value = row.cells[column_index]
+      let mut forbidden = false
+      for character in value.to_array() {
+        if character == '\t' || character == '\r' || character == '\n' {
+          forbidden = true
+        }
+      }
+      if forbidden {
+        issues.push(FieldValueIssue::{
+          code: "forbidden_field_character",
+          file,
+          line: row.line,
+          column,
+          value,
+          message: "GTFS field values must not contain tabs, carriage returns, or newlines",
+        })
+      }
+    }
+  }
+  issues
+}
+
 ///| Check the required column names for a supported GTFS Schedule table.
 
 ///| This initial layer checks unconditional table shape only; conditional

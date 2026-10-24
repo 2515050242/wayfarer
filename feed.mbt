@@ -137,9 +137,10 @@ pub fn validate_feed(tables : GtfsTables) -> Array[FeedIssue] {
       if trips.column_index("trip_id") is Some(_) {
         check_reference(
           stop_times, "stop_times.txt", "trip_id", "trips.txt", trip_ids, issues,
-          true,
+          false,
         )
       }
+      check_trip_stop_counts(trips, stop_times, trip_ids, issues)
       check_stop_time_semantics(stop_times, issues)
     }
     (Some(stop_times), None) => check_stop_time_semantics(stop_times, issues)
@@ -254,16 +255,14 @@ fn check_stop_time_locations(
             } else {
               match stop_location_types.get(stop_id) {
                 Some("0") | Some("") => ()
-                Some(location_type) =>
+                Some(_) =>
                   issues.push(FeedIssue::{
                     code: "invalid_stop_location_type",
                     file: "stop_times.txt",
                     line: row.line,
                     column: "stop_id",
                     value: stop_id,
-                    message: "referenced stops.txt record has location_type=" +
-                    location_type +
-                    "; stop_times.stop_id must identify a stop or platform (location_type 0 or empty)",
+                    message: "stop_times.stop_id must identify a stop or platform (location_type 0 or empty)",
                   })
                 None => ()
               }
@@ -454,6 +453,54 @@ fn check_reference(
           })
         }
       }
+  }
+}
+
+///|
+fn check_trip_stop_counts(
+  trips : CsvTable,
+  stop_times : CsvTable,
+  trip_ids : Map[String, Int32],
+  issues : Array[FeedIssue],
+) -> Unit {
+  match (trips.column_index("trip_id"), stop_times.column_index("trip_id")) {
+    (Some(trips_trip_column), Some(stop_times_trip_column)) => {
+      let stop_counts : Map[String, Int32] = Map([])
+      for row in stop_times.rows {
+        let trip_id = row.cells[stop_times_trip_column]
+        if trip_id != "" {
+          let previous_count = match stop_counts.get(trip_id) {
+            Some(count) => count
+            None => 0
+          }
+          stop_counts.set(trip_id, previous_count + 1)
+        }
+      }
+      for row in trips.rows {
+        let trip_id = row.cells[trips_trip_column]
+        let is_first_trip_record = match trip_ids.get(trip_id) {
+          Some(first_line) => first_line == row.line
+          None => false
+        }
+        if trip_id != "" && is_first_trip_record {
+          let stop_count = match stop_counts.get(trip_id) {
+            Some(count) => count
+            None => 0
+          }
+          if stop_count < 2 {
+            issues.push(FeedIssue::{
+              code: "insufficient_stop_times",
+              file: "trips.txt",
+              line: row.line,
+              column: "trip_id",
+              value: trip_id,
+              message: "trip must have at least two stop_times records",
+            })
+          }
+        }
+      }
+    }
+    _ => ()
   }
 }
 

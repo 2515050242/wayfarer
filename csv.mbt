@@ -24,6 +24,7 @@ pub enum CsvError {
   CharactersAfterQuote(line~ : Int32, column~ : Int32)
   UnterminatedQuote(line~ : Int32, column~ : Int32)
   RowWidthMismatch(line~ : Int32, expected~ : Int32, actual~ : Int32)
+  InvalidLineEnding(line~ : Int32, column~ : Int32)
 }
 
 ///| Parse a CSV document using RFC 4180 quoting rules.
@@ -91,6 +92,9 @@ pub fn parse_csv(source : String) -> Result[CsvTable, CsvError] {
         record_started = true
         index = index + 1
         column = column + 1
+      } else if ch == '\r' &&
+        (index + 1 >= chars.length() || chars[index + 1] != '\n') {
+        return Err(CsvError::InvalidLineEnding(line~, column~))
       } else if ch == '\r' || ch == '\n' {
         cells.push(String::from_array(field))
         field = Array(capacity=0)
@@ -130,6 +134,9 @@ pub fn parse_csv(source : String) -> Result[CsvTable, CsvError] {
       record_started = true
       index = index + 1
       column = column + 1
+    } else if ch == '\r' &&
+      (index + 1 >= chars.length() || chars[index + 1] != '\n') {
+      return Err(CsvError::InvalidLineEnding(line~, column~))
     } else if ch == '\r' || ch == '\n' {
       cells.push(String::from_array(field))
       field = Array(capacity=0)

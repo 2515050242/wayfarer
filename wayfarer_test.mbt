@@ -12,6 +12,28 @@ test "parses headers, rows, and CRLF endings" {
 }
 
 ///|
+test "rejects a bare carriage return between CSV records" {
+  match @wayfarer.parse_csv("id,name\r1,A") {
+    Err(@wayfarer.CsvError::InvalidLineEnding(line~, column~)) => {
+      assert_eq(line, 1)
+      assert_eq(column, 8)
+    }
+    _ => fail("expected a bare CR record ending to be rejected")
+  }
+}
+
+///|
+test "rejects a bare CR record ending after a quoted field" {
+  match @wayfarer.parse_csv("id,name\n1,\"A\"\r") {
+    Err(@wayfarer.CsvError::InvalidLineEnding(line~, column~)) => {
+      assert_eq(line, 2)
+      assert_eq(column, 6)
+    }
+    _ => fail("expected a bare CR record ending after a quoted field to fail")
+  }
+}
+
+///|
 test "parses commas, escaped quotes, and multiline values" {
   let table = match
     @wayfarer.parse_csv(
@@ -113,6 +135,44 @@ test "checks required GTFS columns without imposing row rules" {
 }
 
 ///|
+test "reports quoted and unquoted field controls at their source record" {
+  let table = parse_test_table(
+    "id,name\n1,\"Platform \"\"East\"\"\tA\"\n2,\"North\r\nAnnex\"\n3,South\tGate",
+  )
+  let issues = @wayfarer.validate_gtfs_field_values("stops.txt", table)
+  assert_eq(issues.length(), 3)
+  assert_eq(issues[0].code, "forbidden_field_character")
+  assert_eq(issues[0].file, "stops.txt")
+  assert_eq(issues[0].line, 2)
+  assert_eq(issues[0].column, "name")
+  assert_eq(issues[0].value, "Platform \"East\"\tA")
+  assert_eq(issues[1].line, 3)
+  assert_eq(issues[1].column, "name")
+  assert_eq(issues[1].value, "North\nAnnex")
+  assert_eq(issues[2].line, 5)
+  assert_eq(issues[2].column, "name")
+  assert_eq(issues[2].value, "South\tGate")
+}
+
+///|
+test "normalizes quoted CR and rejects it as a GTFS field value" {
+  let table = parse_test_table("stop_id,stop_name\nS1,\"North\rAnnex\"")
+  let issues = @wayfarer.validate_gtfs_field_values("stops.txt", table)
+  assert_eq(issues.length(), 1)
+  assert_eq(issues[0].line, 2)
+  assert_eq(issues[0].column, "stop_name")
+  assert_eq(issues[0].value, "North\nAnnex")
+}
+
+///|
+test "accepts LF and CRLF as CSV record separators for GTFS tables" {
+  let lf = parse_test_table("stop_id,stop_name\nS1,Central\n")
+  let crlf = parse_test_table("stop_id,stop_name\r\nS1,Central\r\n")
+  assert_eq(@wayfarer.validate_gtfs_field_values("stops.txt", lf).length(), 0)
+  assert_eq(@wayfarer.validate_gtfs_field_values("stops.txt", crlf).length(), 0)
+}
+
+///|
 fn parse_test_table(source : String) -> @wayfarer.CsvTable {
   match @wayfarer.parse_csv(source) {
     Ok(table) => table
@@ -146,6 +206,31 @@ fn valid_gtfs_tables() -> @wayfarer.GtfsTables {
 test "validates references across a minimal feed" {
   let issues = @wayfarer.validate_feed(valid_gtfs_tables())
   assert_eq(issues.length(), 0)
+}
+
+///|
+test "requires at least two stop-time records for each trip" {
+  let one_stop = make_gtfs_tables(
+    "stop_id\nS1", "route_id\nR1", "route_id,service_id,trip_id\nR1,WK,T1", "trip_id,stop_sequence,stop_id,arrival_time\nT1,1,S1,9:00:00",
+  )
+  let issues = @wayfarer.validate_feed(one_stop)
+  assert_eq(issues.length(), 1)
+  assert_eq(issues[0].code, "insufficient_stop_times")
+  assert_eq(issues[0].file, "trips.txt")
+  assert_eq(issues[0].line, 2)
+  assert_eq(issues[0].column, "trip_id")
+  assert_eq(issues[0].value, "T1")
+}
+
+///|
+test "reports a trip with no stop-time records" {
+  let no_stop_times = make_gtfs_tables(
+    "stop_id\nS1\nS2", "route_id\nR1", "route_id,service_id,trip_id\nR1,WK,T1", "trip_id,stop_sequence,stop_id,arrival_time",
+  )
+  let issues = @wayfarer.validate_feed(no_stop_times)
+  assert_eq(issues.length(), 1)
+  assert_eq(issues[0].code, "insufficient_stop_times")
+  assert_eq(issues[0].value, "T1")
 }
 
 ///|
@@ -382,7 +467,7 @@ test "reports a trip whose route does not exist" {
 test "reports a stop time whose trip does not exist" {
   let tables = valid_gtfs_tables()
   let stop_times = parse_test_table(
-    "trip_id,stop_sequence,stop_id,arrival_time\nMISSING,1,S1,9:00:00",
+    "trip_id,stop_sequence,stop_id,arrival_time\nMISSING,1,S1,8:00:00\nT1,1,S1,9:00:00\nT1,2,S2,9:10:00",
   )
   let issues = @wayfarer.validate_feed(@wayfarer.GtfsTables::{
     ..tables,
@@ -397,7 +482,7 @@ test "reports a stop time whose trip does not exist" {
 test "reports an unresolved stop and requires stop ids in the fixed-stop profile" {
   let tables = valid_gtfs_tables()
   let missing_stop = parse_test_table(
-    "trip_id,stop_sequence,stop_id,arrival_time\nT1,1,MISSING,9:00:00",
+    "trip_id,stop_sequence,stop_id,arrival_time\nT1,1,MISSING,9:00:00\nT1,2,S2,9:10:00",
   )
   let missing_issues = @wayfarer.validate_feed(@wayfarer.GtfsTables::{
     ..tables,
@@ -406,7 +491,7 @@ test "reports an unresolved stop and requires stop ids in the fixed-stop profile
   assert_eq(missing_issues.length(), 1)
   assert_eq(missing_issues[0].column, "stop_id")
   let location_group = parse_test_table(
-    "trip_id,stop_sequence,stop_id,arrival_time\nT1,1,,9:00:00",
+    "trip_id,stop_sequence,stop_id,arrival_time\nT1,1,,9:00:00\nT1,2,S2,9:10:00",
   )
   let empty_issues = @wayfarer.validate_feed(@wayfarer.GtfsTables::{
     ..tables,
@@ -536,7 +621,7 @@ test "skips references when their target table is not supplied" {
 ///|
 test "reports an empty required trip route reference" {
   let tables = make_gtfs_tables(
-    "stop_id\nS1\nS2", "route_id\nR1", "route_id,service_id,trip_id\n,WK,T1", "trip_id,stop_sequence,stop_id,arrival_time\nT1,1,S1,9:00:00",
+    "stop_id\nS1\nS2", "route_id\nR1", "route_id,service_id,trip_id\n,WK,T1", "trip_id,stop_sequence,stop_id,arrival_time\nT1,1,S1,9:00:00\nT1,2,S2,9:10:00",
   )
   let issues = @wayfarer.validate_feed(tables)
   assert_eq(issues.length(), 1)

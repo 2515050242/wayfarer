@@ -1,0 +1,5 @@
+stop_id,stop_name,location_type
+S1,"Platform ""East""	A",0
+S2,"North
+Annex",0
+S3,South	Gate,0

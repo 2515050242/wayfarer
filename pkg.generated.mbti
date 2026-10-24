@@ -6,6 +6,8 @@ pub fn parse_csv(String) -> Result[CsvTable, CsvError]
 
 pub fn validate_feed(GtfsTables) -> Array[FeedIssue]
 
+pub fn validate_gtfs_field_values(String, CsvTable) -> Array[FieldValueIssue]
+
 pub fn validate_schema(String, CsvTable) -> Array[SchemaIssue]
 
 // Errors
@@ -19,6 +21,7 @@ pub enum CsvError {
   CharactersAfterQuote(line~ : Int32, column~ : Int32)
   UnterminatedQuote(line~ : Int32, column~ : Int32)
   RowWidthMismatch(line~ : Int32, expected~ : Int32, actual~ : Int32)
+  InvalidLineEnding(line~ : Int32, column~ : Int32)
 }
 
 pub struct CsvRow {
@@ -34,6 +37,15 @@ pub struct CsvTable {
 pub fn CsvTable::column_index(Self, String) -> Int32?
 
 pub struct FeedIssue {
+  code : String
+  file : String
+  line : Int32
+  column : String
+  value : String
+  message : String
+}
+
+pub struct FieldValueIssue {
   code : String
   file : String
   line : Int32

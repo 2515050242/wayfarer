@@ -29,6 +29,9 @@ fn main {
   let required = [
     "agency.txt", "stops.txt", "routes.txt", "trips.txt", "stop_times.txt",
   ]
+  let required_with_records = [
+    "agency.txt", "stops.txt", "routes.txt", "trips.txt",
+  ]
   let tables : Map[String, @wayfarer.CsvTable] = Map([])
   let mut finding_count = 0
   let mut record_count = 0
@@ -76,12 +79,38 @@ fn main {
               file_count = file_count + 1
               record_count = record_count + table.rows.length()
               tables.set(filename, table)
+              if required_with_records.contains(filename) &&
+                table.rows.length() == 0 {
+                println(
+                  "ERROR " +
+                  filename +
+                  ":1 [empty_required_table] required table must contain at least one data record",
+                )
+                finding_count = finding_count + 1
+              }
               for issue in @wayfarer.validate_schema(filename, table) {
                 println(
                   "ERROR " +
                   filename +
                   ":header." +
-                  issue.column +
+                  escape_diagnostic_text(issue.column) +
+                  " [" +
+                  issue.code +
+                  "] " +
+                  issue.message,
+                )
+                finding_count = finding_count + 1
+              }
+              for issue in @wayfarer.validate_gtfs_field_values(filename, table) {
+                println(
+                  "ERROR " +
+                  issue.file +
+                  ":" +
+                  issue.line.to_string() +
+                  " " +
+                  escape_diagnostic_text(issue.column) +
+                  "=" +
+                  quote_diagnostic_value(issue.value) +
                   " [" +
                   issue.code +
                   "] " +
@@ -120,10 +149,10 @@ fn main {
       ":" +
       issue.line.to_string() +
       " " +
-      issue.column +
-      "=\"" +
-      issue.value +
-      "\" [" +
+      escape_diagnostic_text(issue.column) +
+      "=" +
+      quote_diagnostic_value(issue.value) +
+      " [" +
       issue.code +
       "] " +
       issue.message,
@@ -174,9 +203,8 @@ fn print_csv_error(filename : String, error : @wayfarer.CsvError) -> Unit {
         filename +
         ":1:" +
         column.to_string() +
-        " [csv_duplicate_header] duplicate header \"" +
-        name +
-        "\"",
+        " [csv_duplicate_header] duplicate header " +
+        quote_diagnostic_value(name),
       )
     UnexpectedQuote(line~, column~) =>
       println(
@@ -219,5 +247,72 @@ fn print_csv_error(filename : String, error : @wayfarer.CsvError) -> Unit {
         " cells, found " +
         actual.to_string(),
       )
+    InvalidLineEnding(line~, column~) =>
+      println(
+        "ERROR " +
+        filename +
+        ":" +
+        line.to_string() +
+        ":" +
+        column.to_string() +
+        " [csv_invalid_line_ending] only LF or CRLF may end a record",
+      )
   }
+}
+
+///|
+fn quote_diagnostic_value(value : String) -> String {
+  "\"" + escape_diagnostic_text(value) + "\""
+}
+
+///|
+fn escape_diagnostic_text(value : String) -> String {
+  let escaped : Array[Char] = []
+  for character in value.to_array() {
+    match character {
+      '"' => {
+        escaped.push('\\')
+        escaped.push('"')
+      }
+      '\\' => {
+        escaped.push('\\')
+        escaped.push('\\')
+      }
+      '\t' => {
+        escaped.push('\\')
+        escaped.push('t')
+      }
+      '\r' => {
+        escaped.push('\\')
+        escaped.push('r')
+      }
+      '\n' => {
+        escaped.push('\\')
+        escaped.push('n')
+      }
+      _ => {
+        let code = character.to_int()
+        if code < 32 ||
+          code == 127 ||
+          (code >= 128 && code <= 159) ||
+          code == 0x2028 ||
+          code == 0x2029 {
+          escaped.push('\\')
+          escaped.push('u')
+          escaped.push(hex_digit(code / 4096))
+          escaped.push(hex_digit(code / 256 % 16))
+          escaped.push(hex_digit(code / 16 % 16))
+          escaped.push(hex_digit(code % 16))
+        } else {
+          escaped.push(character)
+        }
+      }
+    }
+  }
+  String::from_array(escaped)
+}
+
+///|
+fn hex_digit(value : Int32) -> Char {
+  "0123456789abcdef".to_array()[value]
 }
