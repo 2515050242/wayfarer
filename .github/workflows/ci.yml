@@ -45,6 +45,19 @@ jobs:
           printf '%s\n' "$output"
           printf '%s\n' "$output" | grep -Fx 'PASS (supported checks only): 7 parsed files, 9 records, 0 findings'
 
+      - name: Reject unsupported flexible-location feed
+        shell: bash
+        run: |
+          set +e
+          output=$(moon run cmd/main examples/unsupported-location-profile 2>&1)
+          status=$?
+          set -e
+          printf '%s\n' "$output"
+          test "$status" -eq 1
+          printf '%s\n' "$output" | grep -F 'ERROR locations.geojson [unsupported_location_profile]'
+          printf '%s\n' "$output" | grep -F 'ERROR stop_times.txt:2 location_id="ZONE-1" [unsupported_location_profile]'
+          printf '%s\n' "$output" | grep -Fx 'FAIL: 6 parsed files, 6 records, 2 findings'
+
       - name: Reject feeds without a service calendar
         shell: bash
         run: |

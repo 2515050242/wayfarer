@@ -355,7 +355,7 @@ test "detects each core duplicate key in isolation" {
       None,
       None,
       None,
-      Some(parse_test_table("trip_id,stop_sequence\nT1,1\nT1,1")),
+      Some(parse_test_table("trip_id,stop_sequence,stop_id\nT1,1,S1\nT1,1,S1")),
     ),
   )
   assert_eq(duplicate_sequence.length(), 1)
@@ -394,7 +394,7 @@ test "reports a stop time whose trip does not exist" {
 }
 
 ///|
-test "reports an unresolved stop but accepts an empty conditional stop id" {
+test "reports an unresolved stop and requires stop ids in the fixed-stop profile" {
   let tables = valid_gtfs_tables()
   let missing_stop = parse_test_table(
     "trip_id,stop_sequence,stop_id,arrival_time\nT1,1,MISSING,9:00:00",
@@ -412,7 +412,113 @@ test "reports an unresolved stop but accepts an empty conditional stop id" {
     ..tables,
     stop_times: Some(location_group),
   })
-  assert_eq(empty_issues.length(), 0)
+  assert_eq(empty_issues.length(), 1)
+  assert_eq(empty_issues[0].code, "empty_foreign_key")
+  assert_eq(empty_issues[0].file, "stop_times.txt")
+  assert_eq(empty_issues[0].line, 2)
+  assert_eq(empty_issues[0].column, "stop_id")
+}
+
+///|
+test "accepts stop-time references to stops and platforms only" {
+  let stops = parse_test_table("stop_id,location_type\nS1,\nS2,0\nSTATION,1")
+  let stop_times = parse_test_table(
+    "trip_id,stop_sequence,stop_id,arrival_time\nT1,1,S1,9:00:00\nT2,1,S2,9:00:00",
+  )
+  let issues = @wayfarer.validate_feed(
+    @wayfarer.GtfsTables::new(Some(stops), None, None, Some(stop_times)),
+  )
+  assert_eq(issues.length(), 0)
+}
+
+///|
+test "rejects a stop-time reference to a station" {
+  let tables = @wayfarer.GtfsTables::new(
+    Some(parse_test_table("stop_id,location_type\nSTATION,1")),
+    None,
+    None,
+    Some(
+      parse_test_table(
+        "trip_id,stop_sequence,stop_id,arrival_time\nT1,1,STATION,9:00:00",
+      ),
+    ),
+  )
+  let issues = @wayfarer.validate_feed(tables)
+  assert_eq(issues.length(), 1)
+  assert_eq(issues[0].code, "invalid_stop_location_type")
+  assert_eq(issues[0].line, 2)
+  assert_eq(issues[0].column, "stop_id")
+  assert_eq(issues[0].value, "STATION")
+}
+
+///|
+test "rejects flexible-location stop-time records as unsupported" {
+  let tables = @wayfarer.GtfsTables::new(
+    Some(parse_test_table("stop_id\nS1")),
+    None,
+    None,
+    Some(
+      parse_test_table(
+        "trip_id,stop_sequence,location_id,arrival_time\nT1,1,ZONE,9:00:00",
+      ),
+    ),
+  )
+  let issues = @wayfarer.validate_feed(tables)
+  assert_eq(issues.length(), 1)
+  assert_eq(issues[0].code, "unsupported_location_profile")
+  assert_eq(issues[0].file, "stop_times.txt")
+  assert_eq(issues[0].line, 2)
+  assert_eq(issues[0].column, "location_id")
+  assert_eq(issues[0].value, "ZONE")
+}
+
+///|
+test "rejects location-group rows and does not also require stop_id" {
+  let tables = @wayfarer.GtfsTables::new(
+    Some(parse_test_table("stop_id\nS1")),
+    None,
+    None,
+    Some(
+      parse_test_table(
+        "trip_id,stop_sequence,stop_id,location_group_id,arrival_time\nT1,1,,LG1,9:00:00",
+      ),
+    ),
+  )
+  let issues = @wayfarer.validate_feed(tables)
+  assert_eq(issues.length(), 1)
+  assert_eq(issues[0].code, "unsupported_location_profile")
+  assert_eq(issues[0].column, "location_group_id")
+  assert_eq(issues[0].value, "LG1")
+}
+
+///|
+test "treats an omitted location_type column as a stop" {
+  let tables = @wayfarer.GtfsTables::new(
+    Some(parse_test_table("stop_id\nS1")),
+    None,
+    None,
+    Some(
+      parse_test_table(
+        "trip_id,stop_sequence,stop_id,arrival_time\nT1,1,S1,9:00:00",
+      ),
+    ),
+  )
+  assert_eq(@wayfarer.validate_feed(tables).length(), 0)
+}
+
+///|
+test "requires the stop_id header in a fixed-stop feed" {
+  let tables = @wayfarer.GtfsTables::new(
+    None,
+    None,
+    None,
+    Some(parse_test_table("trip_id,stop_sequence,arrival_time\nT1,1,9:00:00")),
+  )
+  let issues = @wayfarer.validate_feed(tables)
+  assert_eq(issues.length(), 1)
+  assert_eq(issues[0].code, "missing_required_header")
+  assert_eq(issues[0].line, 1)
+  assert_eq(issues[0].column, "stop_id")
 }
 
 ///|
@@ -449,7 +555,7 @@ fn validate_stop_time_fixture(source : String) -> Array[@wayfarer.FeedIssue] {
 ///|
 test "accepts sequence gaps and service-day times after midnight" {
   let issues = validate_stop_time_fixture(
-    "trip_id,stop_sequence,arrival_time,departure_time\nT1,0,23:59:00,23:59:00\nT1,25,25:35:00,25:36:00",
+    "trip_id,stop_sequence,arrival_time,departure_time,stop_id\nT1,0,23:59:00,23:59:00,S1\nT1,25,25:35:00,25:36:00,S1",
   )
   assert_eq(issues.length(), 0)
 }
@@ -457,7 +563,7 @@ test "accepts sequence gaps and service-day times after midnight" {
 ///|
 test "accepts equal arrival and departure times with single-digit hours" {
   let issues = validate_stop_time_fixture(
-    "trip_id,stop_sequence,arrival_time,departure_time\nT1,1,9:05:07,9:05:07\nT1,2,9:05:07,9:05:07",
+    "trip_id,stop_sequence,arrival_time,departure_time,stop_id\nT1,1,9:05:07,9:05:07,S1\nT1,2,9:05:07,9:05:07,S1",
   )
   assert_eq(issues.length(), 0)
 }
@@ -465,7 +571,7 @@ test "accepts equal arrival and departure times with single-digit hours" {
 ///|
 test "reports a time reversal in stop sequence order" {
   let issues = validate_stop_time_fixture(
-    "trip_id,stop_sequence,arrival_time,departure_time\nT1,1,9:05:07,9:05:07\nT1,2,8:00:00,8:00:00",
+    "trip_id,stop_sequence,arrival_time,departure_time,stop_id\nT1,1,9:05:07,9:05:07,S1\nT1,2,8:00:00,8:00:00,S1",
   )
   assert_eq(issues.length(), 1)
   assert_eq(issues[0].code, "time_order_violation")
@@ -477,7 +583,7 @@ test "reports a time reversal in stop sequence order" {
 ///|
 test "reports negative and non-integer stop sequences" {
   let issues = validate_stop_time_fixture(
-    "trip_id,stop_sequence,arrival_time\nT1,-1,\nT2,2.5,\nT3,4,9:20:00\nT3,2,9:10:00",
+    "trip_id,stop_sequence,arrival_time,stop_id\nT1,-1,,S1\nT2,2.5,,S1\nT3,4,9:20:00,S1\nT3,2,9:10:00,S1",
   )
   assert_eq(issues.length(), 2)
   assert_eq(issues[0].code, "invalid_stop_sequence")
@@ -488,14 +594,16 @@ test "reports negative and non-integer stop sequences" {
 ///|
 test "uses unique sequence values as trip order regardless of CSV row order" {
   let issues = validate_stop_time_fixture(
-    "trip_id,stop_sequence,arrival_time,departure_time\nT1,20,25:35:00,25:36:00\nT1,10,23:59:00,23:59:00\nT1,40,26:00:00,26:01:00",
+    "trip_id,stop_sequence,arrival_time,departure_time,stop_id\nT1,20,25:35:00,25:36:00,S1\nT1,10,23:59:00,23:59:00,S1\nT1,40,26:00:00,26:01:00,S1",
   )
   assert_eq(issues.length(), 0)
 }
 
 ///|
 test "treats integer spellings of the same sequence as a duplicate key" {
-  let issues = validate_stop_time_fixture("trip_id,stop_sequence\nT1,1\nT1,01")
+  let issues = validate_stop_time_fixture(
+    "trip_id,stop_sequence,stop_id\nT1,1,S1\nT1,01,S1",
+  )
   assert_eq(issues.length(), 1)
   assert_eq(issues[0].code, "duplicate_primary_key")
   assert_eq(issues[0].line, 3)
@@ -504,7 +612,7 @@ test "treats integer spellings of the same sequence as a duplicate key" {
 ///|
 test "reports malformed stop-time clock values at their source cells" {
   let issues = validate_stop_time_fixture(
-    "trip_id,stop_sequence,arrival_time,departure_time\nT1,1,1:2:03,25:60:00\nT1,2,10:10:60,10:11:00",
+    "trip_id,stop_sequence,arrival_time,departure_time,stop_id\nT1,1,1:2:03,25:60:00,S1\nT1,2,10:10:60,10:11:00,S1",
   )
   assert_eq(issues.length(), 3)
   assert_eq(issues[0].code, "invalid_time")
@@ -517,7 +625,7 @@ test "reports malformed stop-time clock values at their source cells" {
 ///|
 test "allows blank intermediate times when the stop is not exact" {
   let issues = validate_stop_time_fixture(
-    "trip_id,stop_sequence,arrival_time,departure_time,timepoint\nT1,1,9:00:00,,0\nT1,2,,,0\nT1,3,9:10:00,,0",
+    "trip_id,stop_sequence,arrival_time,departure_time,timepoint,stop_id\nT1,1,9:00:00,,0,S1\nT1,2,,,0,S1\nT1,3,9:10:00,,0,S1",
   )
   assert_eq(issues.length(), 0)
 }
@@ -525,7 +633,7 @@ test "allows blank intermediate times when the stop is not exact" {
 ///|
 test "requires arrival times at first and last stops in sequence order" {
   let issues = validate_stop_time_fixture(
-    "trip_id,stop_sequence,arrival_time\nT1,30,\nT1,10,\nT1,20,9:05:00",
+    "trip_id,stop_sequence,arrival_time,stop_id\nT1,30,,S1\nT1,10,,S1\nT1,20,9:05:00,S1",
   )
   assert_eq(issues.length(), 2)
   assert_eq(issues[0].code, "missing_required_time")
@@ -536,7 +644,9 @@ test "requires arrival times at first and last stops in sequence order" {
 
 ///|
 test "reports a missing conditional time even when its column is absent" {
-  let issues = validate_stop_time_fixture("trip_id,stop_sequence\nT1,1")
+  let issues = validate_stop_time_fixture(
+    "trip_id,stop_sequence,stop_id\nT1,1,S1",
+  )
   assert_eq(issues.length(), 1)
   assert_eq(issues[0].code, "missing_required_time")
   assert_eq(issues[0].line, 2)
@@ -546,7 +656,7 @@ test "reports a missing conditional time even when its column is absent" {
 ///|
 test "requires arrival and departure when timepoint is exact" {
   let issues = validate_stop_time_fixture(
-    "trip_id,stop_sequence,arrival_time,departure_time,timepoint\nT1,1,9:00:00,,0\nT1,2,,,1\nT1,3,9:10:00,,0",
+    "trip_id,stop_sequence,arrival_time,departure_time,timepoint,stop_id\nT1,1,9:00:00,,0,S1\nT1,2,,,1,S1\nT1,3,9:10:00,,0,S1",
   )
   assert_eq(issues.length(), 2)
   assert_eq(issues[0].code, "missing_required_time")
@@ -559,7 +669,7 @@ test "requires arrival and departure when timepoint is exact" {
 ///|
 test "does not require times when a pickup or drop-off window is supplied" {
   let issues = validate_stop_time_fixture(
-    "trip_id,stop_sequence,arrival_time,departure_time,start_pickup_drop_off_window,end_pickup_drop_off_window\nT1,1,,,08:00:00,\nT1,2,,,,08:10:00",
+    "trip_id,stop_sequence,arrival_time,departure_time,start_pickup_drop_off_window,end_pickup_drop_off_window,stop_id\nT1,1,,,08:00:00,,S1\nT1,2,,,,08:10:00,S1",
   )
   assert_eq(issues.length(), 0)
 }
@@ -567,7 +677,7 @@ test "does not require times when a pickup or drop-off window is supplied" {
 ///|
 test "does not infer trip ends from duplicate stop sequences" {
   let issues = validate_stop_time_fixture(
-    "trip_id,stop_sequence,arrival_time\nT1,1,\nT1,1,",
+    "trip_id,stop_sequence,arrival_time,stop_id\nT1,1,,S1\nT1,1,,S1",
   )
   assert_eq(issues.length(), 1)
   assert_eq(issues[0].code, "duplicate_primary_key")

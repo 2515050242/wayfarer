@@ -36,7 +36,13 @@ conformance checker.
 - In `calendar_dates.txt`, `(service_id, date)` pairs are unique and `date`
   is non-empty.
 - Each `stop_times.trip_id` resolves to `trips.trip_id`.
-- A non-empty `stop_times.stop_id` resolves to `stops.stop_id`.
+- In the supported fixed-stop profile, `stop_times.stop_id` is present and
+  non-empty, resolves to `stops.stop_id`, and points to a stop/platform whose
+  `location_type` is `0` or empty. An omitted `location_type` column is treated
+  as empty, as allowed by GTFS.
+- Non-empty `stop_times.location_group_id` or `location_id` values are reported
+  as an unsupported flexible-location profile; they are never treated as a
+  passing fixed-stop record.
 - `stop_sequence` is a non-negative integer and unique within each trip. Gaps
   are accepted. Its numeric value defines stop order; CSV rows need not be
   physically sorted by that value.
@@ -60,15 +66,18 @@ need that table; callers should run `validate_schema` for each supplied table
 as well. Trip service IDs are checked only when at least one service table
 provides its `service_id` column; `calendar_dates.txt` may provide service IDs
 without a weekly `calendar.txt`. This check does not validate calendar date
-syntax, date ranges, or `exception_type` values. An empty `stop_times.stop_id` is
-allowed here because that field is conditionally required by GTFS and this
-validator does not parse location groups or GeoJSON locations. The validator
-does not yet check stop hierarchy, location groups or GeoJSON ID collisions,
-pickup/drop-off window field validity or whether time fields are forbidden
-there, `timepoint` values other than the exact value `1`, or other conditional
-stop-time fields. GTFS defines `stop_sequence` as the order of stops along a
-trip; this validator uses the numeric sequence values and does not require CSV
-rows to be sorted. See the
+syntax, date ranges, or `exception_type` values. This release supports fixed
+stop/platform records only. Flexible-location rows that use
+`location_group_id` or `location_id` receive an
+`unsupported_location_profile` finding. The directory CLI also rejects the
+presence of `location_groups.txt`, `location_group_stops.txt`, or
+`locations.geojson`, because it does not parse or validate those files. The
+validator does not yet check stop hierarchy, flexible-location rules or ID
+collisions, pickup/drop-off window field validity or whether time fields are
+forbidden there, `timepoint` values other than the exact value `1`, or other
+conditional stop-time fields. GTFS defines `stop_sequence` as the order of
+stops along a trip; this validator uses the numeric sequence values and does
+not require CSV rows to be sorted. See the
 [GTFS Schedule reference](https://gtfs.org/documentation/schedule/reference/)
 for the complete specification.
 
@@ -130,9 +139,24 @@ FAIL: 5 parsed files, 7 records, 1 finding
 The folder must contain `agency.txt`, `stops.txt`, `routes.txt`, `trips.txt`,
 and `stop_times.txt`, plus at least one of `calendar.txt` or
 `calendar_dates.txt`. If either service table is available, trips' `service_id`
-values are checked against the IDs it defines. Other GTFS tables are currently ignored,
-so location-based on-demand feeds are outside this command's supported input
-profile. The checker reads files as UTF-8 and uses
+values are checked against the IDs it defines. Other GTFS tables are currently
+ignored, except the unsupported location-profile files listed above, which are
+explicitly rejected. Try the unsupported-profile fixture to see both the file
+and row-level findings:
+
+```text
+moon run cmd/main examples/unsupported-location-profile
+```
+
+It exits with status 1. The diagnostic summary includes:
+
+```text
+ERROR locations.geojson [unsupported_location_profile] location-based on-demand data is outside the supported fixed-stop profile
+ERROR stop_times.txt:2 location_id="ZONE-1" [unsupported_location_profile] flexible-location records using location_group_id or location_id are outside the supported fixed-stop profile
+FAIL: 6 parsed files, 6 records, 2 findings
+```
+
+The checker reads files as UTF-8 and uses
 the host path separator, so the same relative commands work in PowerShell and
 POSIX shells. It does not extract ZIP archives. `moon test` runs the library's
 unit fixtures, including parsing, schema, feed references, time formats,

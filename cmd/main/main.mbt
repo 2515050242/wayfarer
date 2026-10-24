@@ -34,8 +34,22 @@ fn main {
   let mut record_count = 0
   let mut file_count = 0
   let mut has_service_calendar_file = false
+  let unsupported_location_files = [
+    "location_groups.txt", "location_group_stops.txt", "locations.geojson",
+  ]
 
   println("Wayfarer: checking " + directory)
+  for filename in unsupported_location_files {
+    let path = directory + @path.sep.to_string() + filename
+    if @fs.path_exists(path) {
+      println(
+        "ERROR " +
+        filename +
+        " [unsupported_location_profile] location-based on-demand data is outside the supported fixed-stop profile",
+      )
+      finding_count = finding_count + 1
+    }
+  }
   for filename in filenames {
     let path = directory + @path.sep.to_string() + filename
     if @fs.path_exists(path) {

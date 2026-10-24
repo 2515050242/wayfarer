@@ -1,0 +1,2 @@
+trip_id,stop_sequence,stop_id,location_id,arrival_time,departure_time
+T1,1,,ZONE-1,9:00:00,9:00:00

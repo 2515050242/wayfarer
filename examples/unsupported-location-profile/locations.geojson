@@ -1,0 +1,1 @@
+{"type":"FeatureCollection","features":[{"type":"Feature","id":"ZONE-1","properties":{"stop_name":"Request zone"},"geometry":{"type":"Polygon","coordinates":[[[-122.4,37.7],[-122.3,37.7],[-122.3,37.8],[-122.4,37.8],[-122.4,37.7]]]}}]}

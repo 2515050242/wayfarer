@@ -1,0 +1,2 @@
+stop_id,location_type
+S1,0

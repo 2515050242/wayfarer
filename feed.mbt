@@ -60,17 +60,21 @@ pub struct FeedIssue {
 /// This checks `stops.stop_id`, `routes.route_id`, and `trips.trip_id` for
 /// uniqueness; stop-time key and schedule fields; trip-to-route and stop-time
 /// references; and trip service references when `calendar.txt` or
-/// `calendar_dates.txt` supplies service IDs. It does not check conditional
-/// fields or whether the supplied tables satisfy the required-header profile.
+/// `calendar_dates.txt` supplies service IDs. It requires `stop_id` in the
+/// supported fixed-stop profile, but does not check other conditional fields
+/// or whether the supplied tables satisfy the remaining header profile.
 pub fn validate_feed(tables : GtfsTables) -> Array[FeedIssue] {
   let issues : Array[FeedIssue] = []
   let mut stop_ids : Map[String, Int32] = Map([])
+  let mut stop_location_types : Map[String, String] = Map([])
   let mut route_ids : Map[String, Int32] = Map([])
   let mut trip_ids : Map[String, Int32] = Map([])
 
   match tables.stops {
-    Some(table) =>
+    Some(table) => {
       stop_ids = index_unique_id(table, "stops.txt", "stop_id", issues)
+      stop_location_types = index_stop_location_types(table)
+    }
     None => ()
   }
   match tables.routes {
@@ -142,17 +146,145 @@ pub fn validate_feed(tables : GtfsTables) -> Array[FeedIssue] {
     _ => ()
   }
 
-  match (tables.stop_times, tables.stops) {
-    (Some(stop_times), Some(stops)) =>
-      if stops.column_index("stop_id") is Some(_) {
-        check_reference(
-          stop_times, "stop_times.txt", "stop_id", "stops.txt", stop_ids, issues,
-          false,
-        )
+  match tables.stop_times {
+    Some(stop_times) =>
+      check_stop_time_locations(
+        stop_times,
+        tables.stops is Some(_),
+        stop_ids,
+        stop_location_types,
+        issues,
+      )
+    None => ()
+  }
+  issues
+}
+
+///|
+fn index_stop_location_types(table : CsvTable) -> Map[String, String] {
+  let locations : Map[String, String] = Map([])
+  match (table.column_index("stop_id"), table.column_index("location_type")) {
+    (Some(stop_column), location_type_column) =>
+      for row in table.rows {
+        let stop_id = row.cells[stop_column]
+        if stop_id != "" && locations.get(stop_id) is None {
+          let location_type = match location_type_column {
+            Some(column) => row.cells[column]
+            None => ""
+          }
+          locations.set(stop_id, location_type)
+        }
       }
     _ => ()
   }
-  issues
+  locations
+}
+
+///|
+fn check_stop_time_locations(
+  table : CsvTable,
+  has_stops_table : Bool,
+  stop_ids : Map[String, Int32],
+  stop_location_types : Map[String, String],
+  issues : Array[FeedIssue],
+) -> Unit {
+  let stop_column = table.column_index("stop_id")
+  let location_group_column = table.column_index("location_group_id")
+  let location_column = table.column_index("location_id")
+  let mut missing_header_reported = false
+  if stop_column is None && table.rows.length() == 0 {
+    add_missing_stop_id_header_issue(issues)
+  }
+  for row in table.rows {
+    let location_group_id = match location_group_column {
+      Some(column) => row.cells[column]
+      None => ""
+    }
+    let location_id = match location_column {
+      Some(column) => row.cells[column]
+      None => ""
+    }
+    if location_group_id != "" || location_id != "" {
+      let unsupported_column = if location_group_id != "" {
+        "location_group_id"
+      } else {
+        "location_id"
+      }
+      let unsupported_value = if location_group_id != "" {
+        location_group_id
+      } else {
+        location_id
+      }
+      issues.push(FeedIssue::{
+        code: "unsupported_location_profile",
+        file: "stop_times.txt",
+        line: row.line,
+        column: unsupported_column,
+        value: unsupported_value,
+        message: "flexible-location records using location_group_id or location_id are outside the supported fixed-stop profile",
+      })
+    } else {
+      match stop_column {
+        None =>
+          if !missing_header_reported {
+            add_missing_stop_id_header_issue(issues)
+            missing_header_reported = true
+          }
+        Some(stop_column) => {
+          let stop_id = row.cells[stop_column]
+          if stop_id == "" {
+            issues.push(FeedIssue::{
+              code: "empty_foreign_key",
+              file: "stop_times.txt",
+              line: row.line,
+              column: "stop_id",
+              value: "",
+              message: "stop_id is required for the supported fixed-stop profile",
+            })
+          } else if has_stops_table {
+            if stop_ids.get(stop_id) is None {
+              issues.push(FeedIssue::{
+                code: "unresolved_reference",
+                file: "stop_times.txt",
+                line: row.line,
+                column: "stop_id",
+                value: stop_id,
+                message: "referenced ID does not exist in stops.txt",
+              })
+            } else {
+              match stop_location_types.get(stop_id) {
+                Some("0") | Some("") => ()
+                Some(location_type) =>
+                  issues.push(FeedIssue::{
+                    code: "invalid_stop_location_type",
+                    file: "stop_times.txt",
+                    line: row.line,
+                    column: "stop_id",
+                    value: stop_id,
+                    message: "referenced stops.txt record has location_type=" +
+                    location_type +
+                    "; stop_times.stop_id must identify a stop or platform (location_type 0 or empty)",
+                  })
+                None => ()
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+///|
+fn add_missing_stop_id_header_issue(issues : Array[FeedIssue]) -> Unit {
+  issues.push(FeedIssue::{
+    code: "missing_required_header",
+    file: "stop_times.txt",
+    line: 1,
+    column: "stop_id",
+    value: "",
+    message: "stop_id header is required for the supported fixed-stop profile",
+  })
 }
 
 ///|
