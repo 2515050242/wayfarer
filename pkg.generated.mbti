@@ -4,6 +4,8 @@ package "2515050242/wayfarer"
 // Values
 pub fn parse_csv(String) -> Result[CsvTable, CsvError]
 
+pub fn parse_csv_dataset_profile(String) -> Result[CsvDatasetProfile, String]
+
 pub fn validate_csv_dataset(CsvDatasetProfile, Map[String, CsvTable]) -> Array[CsvDatasetIssue]
 
 pub fn validate_feed(GtfsTables) -> Array[FeedIssue]

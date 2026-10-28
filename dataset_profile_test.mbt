@@ -46,6 +46,16 @@ test "validates a non-GTFS inventory dataset profile" {
 }
 
 ///|
+test "rejects an empty profile instead of reporting an unconstrained pass" {
+  let profile = @wayfarer.CsvDatasetProfile::new([], [])
+  let tables : Map[String, @wayfarer.CsvTable] = Map([])
+  let issues = @wayfarer.validate_csv_dataset(profile, tables)
+  assert_eq(issues.length(), 1)
+  assert_eq(issues[0].code, "invalid_profile")
+  assert_eq(issues[0].column, "tables")
+}
+
+///|
 test "reports missing tables headers values and minimum rows" {
   let tables : Map[String, @wayfarer.CsvTable] = Map([])
   tables.set("products.csv", parse_dataset_test_table("product_id\n"))

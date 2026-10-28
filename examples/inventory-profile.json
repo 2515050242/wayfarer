@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "tables": [
+    {
+      "file": "products.csv",
+      "required": true,
+      "minimum_rows": 1,
+      "required_columns": ["product_id", "name"],
+      "non_empty_columns": ["product_id", "name"],
+      "unique_keys": [["product_id"]]
+    },
+    {
+      "file": "orders.csv",
+      "required": true,
+      "minimum_rows": 1,
+      "required_columns": ["order_id", "product_id", "quantity"],
+      "non_empty_columns": ["order_id", "product_id", "quantity"],
+      "unique_keys": [["order_id"]]
+    }
+  ],
+  "references": [
+    {
+      "source_file": "orders.csv",
+      "source_column": "product_id",
+      "target_file": "products.csv",
+      "target_column": "product_id",
+      "required": true
+    }
+  ]
+}

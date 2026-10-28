@@ -101,6 +101,17 @@ pub fn validate_csv_dataset(
   tables : Map[String, CsvTable],
 ) -> Array[CsvDatasetIssue] {
   let issues : Array[CsvDatasetIssue] = []
+  if profile.tables.length() == 0 {
+    add_dataset_issue(
+      issues,
+      "invalid_profile",
+      "",
+      None,
+      "tables",
+      "",
+      "a dataset profile must declare at least one table",
+    )
+  }
   let declared_files : Map[String, Bool] = Map([])
   for rule in profile.tables {
     if rule.file == "" {

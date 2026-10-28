@@ -59,6 +59,43 @@ jobs:
           test "$invalid_status" -eq 1
           printf '%s\n' "$invalid_output" | grep -Fx 'ERROR orders.csv:3 product_id [unresolved_reference] referenced value does not exist in products.csv'
           printf '%s\n' "$invalid_output" | grep -Fx 'FAIL: 2 CSV tables, 4 records, 1 finding'
+      - name: Run JSON-configured CSV profile examples
+        shell: bash
+        run: |
+          valid_output=$(moon run cmd/csv-check examples/inventory-profile.json examples/inventory-profile 2>&1)
+          printf '%s\n' "$valid_output"
+          printf '%s\n' "$valid_output" | grep -Fx 'PASS: 2 CSV tables, 4 records, 0 findings'
+          set +e
+          invalid_output=$(moon run cmd/csv-check examples/inventory-profile.json examples/inventory-profile-invalid 2>&1)
+          invalid_status=$?
+          set -e
+          printf '%s\n' "$invalid_output"
+          test "$invalid_status" -eq 1
+          printf '%s\n' "$invalid_output" | grep -Fx 'ERROR orders.csv:3 product_id="P9" [unresolved_reference] referenced value does not exist in products.csv'
+          printf '%s\n' "$invalid_output" | grep -Fx 'FAIL: 2 CSV tables, 4 records, 1 finding'
+          set +e
+          empty_profile_output=$(moon run cmd/csv-check examples/empty-profile.json examples/inventory-profile 2>&1)
+          empty_profile_status=$?
+          set -e
+          printf '%s\n' "$empty_profile_output"
+          test "$empty_profile_status" -eq 2
+          printf '%s\n' "$empty_profile_output" | grep -F 'ERROR examples/empty-profile.json [invalid_profile] profile must declare at least one table'
+
+      - name: Exercise a second CSV domain and composite key
+        shell: bash
+        run: |
+          valid_output=$(moon run cmd/csv-check examples/enrollment-profile.json examples/enrollment-profile 2>&1)
+          printf '%s\n' "$valid_output"
+          printf '%s\n' "$valid_output" | grep -Fx 'PASS: 3 CSV tables, 7 records, 0 findings'
+          set +e
+          invalid_output=$(moon run cmd/csv-check examples/enrollment-profile.json examples/enrollment-profile-invalid 2>&1)
+          invalid_status=$?
+          set -e
+          printf '%s\n' "$invalid_output"
+          test "$invalid_status" -eq 1
+          printf '%s\n' "$invalid_output" | grep -Fx 'ERROR enrollments.csv:4 learner_id,class_id="L1,C1" [duplicate_key] key value is already used in this table'
+          printf '%s\n' "$invalid_output" | grep -Fx 'ERROR enrollments.csv:2 class_id="C9" [unresolved_reference] referenced value does not exist in classes.csv'
+          printf '%s\n' "$invalid_output" | grep -Fx 'FAIL: 3 CSV tables, 7 records, 2 findings'
 
       - name: Reject empty required tables and one-stop trips
         shell: bash
@@ -237,5 +274,42 @@ jobs:
           Write-Output $profileInvalidText
           if ($profileInvalidStatus -ne 1 -or -not $profileInvalidText.Contains('ERROR orders.csv:3 product_id [unresolved_reference] referenced value does not exist in products.csv') -or -not $profileInvalidText.Contains('FAIL: 2 CSV tables, 4 records, 1 finding')) {
             throw 'The invalid reusable CSV profile example did not produce the documented finding.'
+          }
+
+          $configuredValid = & moon run cmd/csv-check examples/inventory-profile.json examples/inventory-profile 2>&1
+          $configuredValidStatus = $LASTEXITCODE
+          $configuredValidText = $configuredValid -join "`n"
+          Write-Output $configuredValidText
+          if ($configuredValidStatus -ne 0 -or -not $configuredValidText.Contains('PASS: 2 CSV tables, 4 records, 0 findings')) {
+            throw 'The JSON-configured profile did not pass its valid fixture.'
+          }
+          $configuredInvalid = & moon run cmd/csv-check examples/inventory-profile.json examples/inventory-profile-invalid 2>&1
+          $configuredInvalidStatus = $LASTEXITCODE
+          $configuredInvalidText = $configuredInvalid -join "`n"
+          Write-Output $configuredInvalidText
+          if ($configuredInvalidStatus -ne 1 -or -not $configuredInvalidText.Contains('ERROR orders.csv:3 product_id="P9" [unresolved_reference] referenced value does not exist in products.csv') -or -not $configuredInvalidText.Contains('FAIL: 2 CSV tables, 4 records, 1 finding')) {
+            throw 'The JSON-configured profile did not report its invalid reference.'
+          }
+          $emptyProfile = & moon run cmd/csv-check examples/empty-profile.json examples/inventory-profile 2>&1
+          $emptyProfileStatus = $LASTEXITCODE
+          $emptyProfileText = $emptyProfile -join "`n"
+          Write-Output $emptyProfileText
+          if ($emptyProfileStatus -ne 2 -or -not $emptyProfileText.Contains('ERROR examples/empty-profile.json [invalid_profile] profile must declare at least one table')) {
+            throw 'An unconstrained empty JSON profile should be rejected as invalid configuration.'
+          }
+
+          $enrollmentValid = & moon run cmd/csv-check examples/enrollment-profile.json examples/enrollment-profile 2>&1
+          $enrollmentValidStatus = $LASTEXITCODE
+          $enrollmentValidText = $enrollmentValid -join "`n"
+          Write-Output $enrollmentValidText
+          if ($enrollmentValidStatus -ne 0 -or -not $enrollmentValidText.Contains('PASS: 3 CSV tables, 7 records, 0 findings')) {
+            throw 'The second synthetic CSV profile did not pass.'
+          }
+          $enrollmentInvalid = & moon run cmd/csv-check examples/enrollment-profile.json examples/enrollment-profile-invalid 2>&1
+          $enrollmentInvalidStatus = $LASTEXITCODE
+          $enrollmentInvalidText = $enrollmentInvalid -join "`n"
+          Write-Output $enrollmentInvalidText
+          if ($enrollmentInvalidStatus -ne 1 -or -not $enrollmentInvalidText.Contains('ERROR enrollments.csv:4 learner_id,class_id="L1,C1" [duplicate_key]') -or -not $enrollmentInvalidText.Contains('ERROR enrollments.csv:2 class_id="C9" [unresolved_reference]') -or -not $enrollmentInvalidText.Contains('FAIL: 3 CSV tables, 7 records, 2 findings')) {
+            throw 'The second synthetic CSV profile did not report its duplicate key and unresolved reference.'
           }
           exit 0

@@ -12,8 +12,9 @@ keys, and foreign-key-style references. The GTFS profile adds transit-specific
 schedule checks. Neither profile claims full GTFS conformance; use a full GTFS
 validator when canonical conformance is required.
 
-Every bundled feed under `examples/` is a synthetic, minimal fixture created for
-reproducible checks. None is presented as data from a transit operator.
+Every dataset under `examples/` is synthetic and exists for reproducible
+checks. None is presented as production, student, business, or transit-operator
+data.
 
 ## Reusable CSV dataset profiles
 
@@ -25,15 +26,49 @@ against a declared single-column unique key in another table. Findings retain
 the file, source row when available, column, value, stable code, and message.
 Non-empty rules reject empty cells without trimming or normalizing values.
 
-The profile API accepts CSV tables parsed by `parse_csv` in a
-`Map[String, CsvTable]`; callers can construct different profiles for inventory
-exports, ETL staging tables, or other multi-file CSV datasets. It does not yet
-read a user-authored profile file or provide a generic profile-config CLI, and
-it does not validate JSON, databases, every field type, or arbitrary enum
-rules. `cmd/profile-demo` is a runnable example with a compiled-in profile,
-not a general profile-config command. See
+Callers can construct different profiles for inventory exports, ETL staging
+tables, or other multi-file CSV datasets in MoonBit. The `cmd/csv-check`
+command also reads a versioned JSON profile, so a user can run a profile
+without writing a MoonBit caller. The configuration describes CSV files only;
+it does not make JSON or database contents into input data sources. Wayfarer
+does not validate every field type or arbitrary enum rules. `cmd/profile-demo`
+remains a compiled-in example of the library API. See
 [`cmd/profile-demo/main.mbt`](cmd/profile-demo/main.mbt) for profile
-construction and API use.
+construction and API use, and
+[`examples/inventory-profile.json`](examples/inventory-profile.json) for the
+configuration format.
+
+Run the JSON-configured checker against the synthetic inventory example:
+
+```text
+moon run cmd/csv-check examples/inventory-profile.json examples/inventory-profile
+```
+
+Expected output:
+
+```text
+Wayfarer: checking CSV profile in examples/inventory-profile
+PASS: 2 CSV tables, 4 records, 0 findings
+```
+
+Point the same profile at the invalid fixture to see a source-located finding
+and exit status 1:
+
+```text
+moon run cmd/csv-check examples/inventory-profile.json examples/inventory-profile-invalid
+```
+
+```text
+ERROR orders.csv:3 product_id="P9" [unresolved_reference] referenced value does not exist in products.csv
+FAIL: 2 CSV tables, 4 records, 1 finding
+```
+
+The config requires `version`, `tables`, and `references`; each table and
+reference rule specifies all fields shown in the example. Version 1 rejects an
+empty table list. Files are resolved from the supplied directory and profile
+filenames must be leaf names, not paths. Malformed profiles or
+unreadable/malformed CSV inputs exit with status 2; data findings exit with
+status 1. Cell values in findings are quoted and control characters escaped.
 
 The synthetic inventory example demonstrates a passing multi-table dataset:
 
@@ -58,6 +93,31 @@ FAIL: 2 CSV tables, 4 records, 1 finding
 ```
 
 These files are synthetic test data, not records from a business or operator.
+
+The same command can apply a different profile to a three-table enrollment
+dataset. This example exercises a composite `(learner_id, class_id)` key and
+two cross-table references:
+
+```text
+moon run cmd/csv-check examples/enrollment-profile.json examples/enrollment-profile
+```
+
+```text
+PASS: 3 CSV tables, 7 records, 0 findings
+```
+
+Its failing fixture contains both a duplicate enrollment and an unknown class
+reference, reported at their source rows:
+
+```text
+moon run cmd/csv-check examples/enrollment-profile.json examples/enrollment-profile-invalid
+```
+
+```text
+ERROR enrollments.csv:4 learner_id,class_id="L1,C1" [duplicate_key] key value is already used in this table
+ERROR enrollments.csv:2 class_id="C9" [unresolved_reference] referenced value does not exist in classes.csv
+FAIL: 3 CSV tables, 7 records, 2 findings
+```
 
 ## Built-in GTFS Schedule profile
 
@@ -269,20 +329,25 @@ archives. `moon test` runs the library's unit fixtures, including parsing,
 schema, forbidden field values, feed references, minimum trip stops, time
 formats, time ordering, and sequence boundaries.
 
-The public library API exposes `parse_csv` for CSV text, `validate_schema` for
+The public library API exposes `parse_csv` for CSV text,
+`parse_csv_dataset_profile` for version 1 profile JSON, `validate_schema` for
 the built-in GTFS header profile, `validate_gtfs_field_values` and
 `validate_feed` for GTFS checks, and `validate_csv_dataset` for user-defined
 CSV dataset contracts. Build a `CsvDatasetProfile` from table and reference
 rules, parse each input with `parse_csv`, place the results in a
-`Map[String, CsvTable]`, and pass the map to `validate_csv_dataset`. The GTFS
+`Map[String, CsvTable]`, and pass the map to `validate_csv_dataset`. The JSON
+profile command reads the declared CSV files and constructs the same profile
+model before calling that validator. The GTFS
 API continues to accept partial table sets and skips checks without context;
 the GTFS directory CLI additionally enforces its required files and service
 calendar requirements. All parser and validator findings use structured result
 types.
 
-The `cmd/main` executable connects these APIs to a local feed directory. Its
+The `cmd/main` executable connects these APIs to a local feed directory, while
+`cmd/csv-check` applies a JSON-defined generic profile to a CSV directory. Their
 only external module dependency is `moonbitlang/x` 0.5.6 for filesystem, path,
-and process-exit support; the parser and validation rules remain in this MoonBit module.
+and process-exit support; the parser, config decoding, and validation rules
+remain implemented in MoonBit.
 The upstream module declares Apache-2.0 and identifies its packages as
 experimental.
 

@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "tables": [
+    {
+      "file": "learners.csv",
+      "required": true,
+      "minimum_rows": 1,
+      "required_columns": ["learner_id", "name"],
+      "non_empty_columns": ["learner_id", "name"],
+      "unique_keys": [["learner_id"]]
+    },
+    {
+      "file": "classes.csv",
+      "required": true,
+      "minimum_rows": 1,
+      "required_columns": ["class_id", "course", "term"],
+      "non_empty_columns": ["class_id", "course", "term"],
+      "unique_keys": [["class_id"]]
+    },
+    {
+      "file": "enrollments.csv",
+      "required": true,
+      "minimum_rows": 1,
+      "required_columns": ["learner_id", "class_id", "status"],
+      "non_empty_columns": ["learner_id", "class_id", "status"],
+      "unique_keys": [["learner_id", "class_id"]]
+    }
+  ],
+  "references": [
+    {
+      "source_file": "enrollments.csv",
+      "source_column": "learner_id",
+      "target_file": "learners.csv",
+      "target_column": "learner_id",
+      "required": true
+    },
+    {
+      "source_file": "enrollments.csv",
+      "source_column": "class_id",
+      "target_file": "classes.csv",
+      "target_column": "class_id",
+      "required": true
+    }
+  ]
+}
