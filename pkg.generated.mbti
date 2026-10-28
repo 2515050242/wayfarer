@@ -4,6 +4,8 @@ package "2515050242/wayfarer"
 // Values
 pub fn parse_csv(String) -> Result[CsvTable, CsvError]
 
+pub fn validate_csv_dataset(CsvDatasetProfile, Map[String, CsvTable]) -> Array[CsvDatasetIssue]
+
 pub fn validate_feed(GtfsTables) -> Array[FeedIssue]
 
 pub fn validate_gtfs_field_values(String, CsvTable) -> Array[FieldValueIssue]
@@ -13,6 +15,40 @@ pub fn validate_schema(String, CsvTable) -> Array[SchemaIssue]
 // Errors
 
 // Types and methods
+pub(all) struct CsvDatasetIssue {
+  code : String
+  file : String
+  line : Int32?
+  column : String
+  value : String
+  message : String
+}
+
+pub(all) struct CsvDatasetProfile {
+  tables : Array[CsvDatasetTableRule]
+  references : Array[CsvDatasetReferenceRule]
+}
+pub fn CsvDatasetProfile::new(Array[CsvDatasetTableRule], Array[CsvDatasetReferenceRule]) -> Self
+
+pub(all) struct CsvDatasetReferenceRule {
+  source_file : String
+  source_column : String
+  target_file : String
+  target_column : String
+  required : Bool
+}
+pub fn CsvDatasetReferenceRule::new(String, String, String, String, Bool) -> Self
+
+pub(all) struct CsvDatasetTableRule {
+  file : String
+  required : Bool
+  minimum_rows : Int32
+  required_columns : Array[String]
+  non_empty_columns : Array[String]
+  unique_keys : Array[Array[String]]
+}
+pub fn CsvDatasetTableRule::new(String, Bool, Int32, Array[String], Array[String], Array[Array[String]]) -> Self
+
 pub enum CsvError {
   EmptyDocument
   EmptyHeader(line~ : Int32, column~ : Int32)

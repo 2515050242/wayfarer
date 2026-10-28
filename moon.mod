@@ -19,11 +19,11 @@ repository = "https://github.com/2515050242/wayfarer"
 
 license = "Apache-2.0"
 
-keywords = [ "gtfs", "transit", "csv", "validation" ]
+keywords = [ "csv", "data-quality", "dataset-profile", "gtfs", "validation" ]
 
 preferred_target = "wasm"
 
-description = "A MoonBit toolkit for inspecting and validating GTFS Schedule feeds."
+description = "A MoonBit CSV dataset-contract toolkit with bounded GTFS Schedule checks."
 
 import {
   "moonbitlang/x@0.5.6",

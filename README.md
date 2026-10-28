@@ -1,20 +1,65 @@
 # Wayfarer
 
-Wayfarer is a MoonBit toolkit for checking General Transit Feed Specification
-(GTFS) Schedule data. It is being built as a reusable validator for transit
-feed maintainers and developers who need clear, reproducible data-quality
-checks.
+Wayfarer is a MoonBit toolkit for validating multi-table CSV datasets against
+reusable data contracts. Pipeline developers can define table, required-field,
+unique-key, and reference rules in MoonBit and use the same validation core in
+ETL code or CI. Wayfarer also includes a bounded GTFS Schedule profile and a
+local directory checker for transit feeds.
 
-The current increments establish a strict CSV input layer and core feed checks:
-source-located CSV parsing, rectangular-row and required-header checks, selected
-identifiers and references between core GTFS tables, and key stop-time schedule
-fields. Wayfarer is a bounded local checker for a supported GTFS Schedule
-profile. It complements, and does not replace, a full canonical GTFS validator.
+The shared layer provides source-located CSV parsing and profile-driven checks
+for required tables and headers, minimum row counts, non-empty values, unique
+keys, and foreign-key-style references. The GTFS profile adds transit-specific
+schedule checks. Neither profile claims full GTFS conformance; use a full GTFS
+validator when canonical conformance is required.
 
 Every bundled feed under `examples/` is a synthetic, minimal fixture created for
 reproducible checks. None is presented as data from a transit operator.
 
-## Current coverage
+## Reusable CSV dataset profiles
+
+`CsvDatasetProfile` lets a MoonBit caller describe a dataset without adding
+domain-specific logic to the validation engine. A table rule can require a
+file, set a minimum row count, list required headers and non-empty columns, and
+declare single- or multi-column unique keys. Reference rules validate values
+against a declared single-column unique key in another table. Findings retain
+the file, source row when available, column, value, stable code, and message.
+Non-empty rules reject empty cells without trimming or normalizing values.
+
+The profile API accepts CSV tables parsed by `parse_csv` in a
+`Map[String, CsvTable]`; callers can construct different profiles for inventory
+exports, ETL staging tables, or other multi-file CSV datasets. It does not yet
+read a user-authored profile file or provide a generic profile-config CLI, and
+it does not validate JSON, databases, every field type, or arbitrary enum
+rules. `cmd/profile-demo` is a runnable example with a compiled-in profile,
+not a general profile-config command. See
+[`cmd/profile-demo/main.mbt`](cmd/profile-demo/main.mbt) for profile
+construction and API use.
+
+The synthetic inventory example demonstrates a passing multi-table dataset:
+
+```text
+moon run cmd/profile-demo examples/inventory-profile
+```
+
+```text
+PASS: 2 CSV tables, 4 records, 0 findings
+```
+
+The failing fixture demonstrates a broken product reference and exits with
+status 1:
+
+```text
+moon run cmd/profile-demo examples/inventory-profile-invalid
+```
+
+```text
+ERROR orders.csv:3 product_id [unresolved_reference] referenced value does not exist in products.csv
+FAIL: 2 CSV tables, 4 records, 1 finding
+```
+
+These files are synthetic test data, not records from a business or operator.
+
+## Built-in GTFS Schedule profile
 
 | Table | Unconditionally required headers checked |
 | --- | --- |
@@ -225,15 +270,15 @@ schema, forbidden field values, feed references, minimum trip stops, time
 formats, time ordering, and sequence boundaries.
 
 The public library API exposes `parse_csv` for CSV text, `validate_schema` for
-checking the header profile of one supported table,
-`validate_gtfs_field_values` for forbidden characters in a parsed table, and
-`validate_feed` for the relationship and stop-time checks above. `GtfsTables::new` accepts the
-core tables; `GtfsTables::with_services` also accepts optional `calendar.txt`
-and `calendar_dates.txt` context. Parsing failures and schema/feed findings
-use structured result types. A caller can build `GtfsTables` from the results
-of `parse_csv` and pass the available tables to `validate_feed`. The library
-API supports partial table sets and skips checks without context; the
-directory CLI additionally enforces the service-calendar file requirement.
+the built-in GTFS header profile, `validate_gtfs_field_values` and
+`validate_feed` for GTFS checks, and `validate_csv_dataset` for user-defined
+CSV dataset contracts. Build a `CsvDatasetProfile` from table and reference
+rules, parse each input with `parse_csv`, place the results in a
+`Map[String, CsvTable]`, and pass the map to `validate_csv_dataset`. The GTFS
+API continues to accept partial table sets and skips checks without context;
+the GTFS directory CLI additionally enforces its required files and service
+calendar requirements. All parser and validator findings use structured result
+types.
 
 The `cmd/main` executable connects these APIs to a local feed directory. Its
 only external module dependency is `moonbitlang/x` 0.5.6 for filesystem, path,

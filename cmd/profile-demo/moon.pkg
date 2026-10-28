@@ -1,0 +1,9 @@
+import {
+  "2515050242/wayfarer",
+  "moonbitlang/core/env",
+  "moonbitlang/x/fs",
+  "moonbitlang/x/path",
+  "moonbitlang/x/sys",
+}
+
+pkgtype(kind: "executable")
