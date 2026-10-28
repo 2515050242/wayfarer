@@ -287,6 +287,124 @@ test "accepts service IDs supplied across both calendar tables" {
 }
 
 ///|
+test "accepts valid service dates including a leap day" {
+  let calendar = parse_test_table(
+    "service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,start_date,end_date\nWK,1,0,0,0,0,0,0,20240229,20240229",
+  )
+  let calendar_dates = parse_test_table(
+    "service_id,date,exception_type\nWK,20240229,1",
+  )
+  let issues = @wayfarer.validate_feed(
+    @wayfarer.GtfsTables::with_services(
+      None,
+      None,
+      None,
+      None,
+      Some(calendar),
+      Some(calendar_dates),
+    ),
+  )
+  assert_eq(issues.length(), 0)
+}
+
+///|
+test "checks calendar weekday values and date ranges" {
+  let calendar = parse_test_table(
+    "service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,start_date,end_date\nWK,2,1,1,1,1,0,0,20261231,20260101",
+  )
+  let issues = @wayfarer.validate_feed(
+    @wayfarer.GtfsTables::with_services(
+      None,
+      None,
+      None,
+      None,
+      Some(calendar),
+      None,
+    ),
+  )
+  assert_eq(issues.length(), 2)
+  assert_eq(issues[0].code, "invalid_enum_value")
+  assert_eq(issues[0].file, "calendar.txt")
+  assert_eq(issues[0].line, 2)
+  assert_eq(issues[0].column, "monday")
+  assert_eq(issues[1].code, "invalid_date_range")
+  assert_eq(issues[1].column, "end_date")
+}
+
+///|
+test "checks calendar date validity and exception type" {
+  let calendar_dates = parse_test_table(
+    "service_id,date,exception_type\nWK,20230229,3",
+  )
+  let issues = @wayfarer.validate_feed(
+    @wayfarer.GtfsTables::with_services(
+      None,
+      None,
+      None,
+      None,
+      None,
+      Some(calendar_dates),
+    ),
+  )
+  assert_eq(issues.length(), 2)
+  assert_eq(issues[0].code, "invalid_date")
+  assert_eq(issues[0].file, "calendar_dates.txt")
+  assert_eq(issues[0].line, 2)
+  assert_eq(issues[0].column, "date")
+  assert_eq(issues[1].code, "invalid_enum_value")
+  assert_eq(issues[1].column, "exception_type")
+}
+
+///|
+test "rejects non-GTFS date spellings" {
+  let calendar_dates = parse_test_table(
+    "service_id,date,exception_type\nWK,2024-02-29,1",
+  )
+  let issues = @wayfarer.validate_feed(
+    @wayfarer.GtfsTables::with_services(
+      None,
+      None,
+      None,
+      None,
+      None,
+      Some(calendar_dates),
+    ),
+  )
+  assert_eq(issues.length(), 1)
+  assert_eq(issues[0].code, "invalid_date")
+  assert_eq(issues[0].file, "calendar_dates.txt")
+  assert_eq(issues[0].line, 2)
+  assert_eq(issues[0].column, "date")
+}
+
+///|
+test "reports missing calendar values without duplicating date key findings" {
+  let calendar = parse_test_table(
+    "service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,start_date,end_date\nWK,,1,1,1,1,0,0,,20261231",
+  )
+  let calendar_dates = parse_test_table(
+    "service_id,date,exception_type\nWK,20261231,",
+  )
+  let issues = @wayfarer.validate_feed(
+    @wayfarer.GtfsTables::with_services(
+      None,
+      None,
+      None,
+      None,
+      Some(calendar),
+      Some(calendar_dates),
+    ),
+  )
+  assert_eq(issues.length(), 3)
+  assert_eq(issues[0].code, "missing_required_value")
+  assert_eq(issues[0].column, "monday")
+  assert_eq(issues[1].code, "missing_required_value")
+  assert_eq(issues[1].column, "start_date")
+  assert_eq(issues[2].code, "missing_required_value")
+  assert_eq(issues[2].column, "exception_type")
+}
+
+///|
 test "rejects duplicate calendar_dates service and date pairs" {
   let trips = parse_test_table("route_id,service_id,trip_id\nR1,WK,T1")
   let calendar_dates = parse_test_table(
@@ -754,9 +872,202 @@ test "requires arrival and departure when timepoint is exact" {
 ///|
 test "does not require times when a pickup or drop-off window is supplied" {
   let issues = validate_stop_time_fixture(
-    "trip_id,stop_sequence,arrival_time,departure_time,start_pickup_drop_off_window,end_pickup_drop_off_window,stop_id\nT1,1,,,08:00:00,,S1\nT1,2,,,,08:10:00,S1",
+    "trip_id,stop_sequence,arrival_time,departure_time,start_pickup_drop_off_window,end_pickup_drop_off_window,stop_id,pickup_type,drop_off_type\nT1,1,,,08:00:00,08:05:00,S1,1,1\nT1,2,,,08:10:00,08:15:00,S2,1,1",
   )
   assert_eq(issues.length(), 0)
+}
+
+///|
+test "accepts paired pickup windows and service-day times after midnight" {
+  let issues = validate_stop_time_fixture(
+    "trip_id,stop_sequence,stop_id,arrival_time,departure_time,start_pickup_drop_off_window,end_pickup_drop_off_window,pickup_type,drop_off_type,continuous_pickup,continuous_drop_off,timepoint\nT1,1,S1,,,25:00:00,25:10:00,1,1,1,1,0\nT1,2,S2,25:20:00,25:21:00,,,,,,,0",
+  )
+  assert_eq(issues.length(), 0)
+}
+
+///|
+test "accepts regular service enum values when no pickup window is present" {
+  let issues = validate_stop_time_fixture(
+    "trip_id,stop_sequence,stop_id,arrival_time,pickup_type,drop_off_type,continuous_pickup,continuous_drop_off,timepoint\nT1,1,S1,09:00:00,0,0,0,0,\nT1,2,S2,10:00:00,0,0,0,0,",
+  )
+  assert_eq(issues.length(), 0)
+}
+
+///|
+test "requires both bounds for a pickup or drop-off window" {
+  let issues = validate_stop_time_fixture(
+    "trip_id,stop_sequence,stop_id,start_pickup_drop_off_window,end_pickup_drop_off_window,pickup_type,drop_off_type\nT1,1,S1,09:00:00,,1,1\nT1,2,S2,,10:00:00,1,1",
+  )
+  assert_eq(issues.length(), 2)
+  assert_eq(issues[0].code, "missing_required_window_bound")
+  assert_eq(issues[0].line, 2)
+  assert_eq(issues[0].column, "end_pickup_drop_off_window")
+  assert_eq(issues[1].code, "missing_required_window_bound")
+  assert_eq(issues[1].line, 3)
+  assert_eq(issues[1].column, "start_pickup_drop_off_window")
+}
+
+///|
+test "rejects default regular pickup and drop-off when a window is present" {
+  let issues = validate_stop_time_fixture(
+    "trip_id,stop_sequence,stop_id,start_pickup_drop_off_window,end_pickup_drop_off_window\nT1,1,S1,09:00:00,09:10:00\nT1,2,S2,09:20:00,09:30:00",
+  )
+  assert_eq(issues.length(), 4)
+  assert_eq(issues[0].code, "forbidden_with_pickup_drop_off_window")
+  assert_eq(issues[0].line, 2)
+  assert_eq(issues[0].column, "pickup_type")
+  assert_eq(issues[1].column, "drop_off_type")
+  assert_eq(issues[2].line, 3)
+  assert_eq(issues[2].column, "pickup_type")
+  assert_eq(issues[3].column, "drop_off_type")
+}
+
+///|
+test "validates pickup window clock syntax and interval order" {
+  let issues = validate_stop_time_fixture(
+    "trip_id,stop_sequence,stop_id,start_pickup_drop_off_window,end_pickup_drop_off_window,pickup_type,drop_off_type\nT1,1,S1,09:60:00,10:00:00,1,1\nT1,2,S2,10:10:00,10:10:00,1,1",
+  )
+  assert_eq(issues.length(), 2)
+  assert_eq(issues[0].code, "invalid_time")
+  assert_eq(issues[0].line, 2)
+  assert_eq(issues[0].column, "start_pickup_drop_off_window")
+  assert_eq(issues[1].code, "invalid_time_window")
+  assert_eq(issues[1].line, 3)
+  assert_eq(issues[1].column, "end_pickup_drop_off_window")
+}
+
+///|
+test "checks stop-time enums and pickup-window conditional restrictions" {
+  let issues = validate_stop_time_fixture(
+    "trip_id,stop_sequence,stop_id,arrival_time,departure_time,start_pickup_drop_off_window,end_pickup_drop_off_window,pickup_type,drop_off_type,continuous_pickup,continuous_drop_off,timepoint\nT1,1,S1,11:00:00,11:01:00,09:30:00,09:45:00,0,0,2,0,2\nT1,2,S2,10:00:00,,,,,,,,0",
+  )
+  assert_eq(issues.length(), 7)
+  assert_eq(issues[0].code, "invalid_enum_value")
+  assert_eq(issues[0].column, "timepoint")
+  assert_eq(issues[1].code, "forbidden_with_pickup_drop_off_window")
+  assert_eq(issues[1].column, "arrival_time")
+  assert_eq(issues[2].column, "departure_time")
+  assert_eq(issues[3].column, "pickup_type")
+  assert_eq(issues[4].column, "drop_off_type")
+  assert_eq(issues[5].column, "continuous_pickup")
+  assert_eq(issues[6].column, "continuous_drop_off")
+}
+
+///|
+test "rejects exact timepoint when a pickup window forbids event times" {
+  let issues = validate_stop_time_fixture(
+    "trip_id,stop_sequence,stop_id,arrival_time,departure_time,start_pickup_drop_off_window,end_pickup_drop_off_window,pickup_type,drop_off_type,continuous_pickup,continuous_drop_off,timepoint\nT1,1,S1,,,08:00:00,08:10:00,1,1,1,1,1\nT1,2,S2,09:00:00,,,,,,,,0",
+  )
+  assert_eq(issues.length(), 1)
+  assert_eq(issues[0].code, "incompatible_stop_time_fields")
+  assert_eq(issues[0].line, 2)
+  assert_eq(issues[0].column, "timepoint")
+}
+
+///|
+test "rejects stop-time enum values outside the GTFS set" {
+  let issues = validate_stop_time_fixture(
+    "trip_id,stop_sequence,stop_id,arrival_time,pickup_type,drop_off_type,continuous_pickup,continuous_drop_off,timepoint\nT1,1,S1,09:00:00,7,-1,4,x,2\nT1,2,S2,10:00:00,,,,,",
+  )
+  assert_eq(issues.length(), 5)
+  assert_eq(issues[0].code, "invalid_enum_value")
+  assert_eq(issues[0].line, 2)
+  assert_eq(issues[0].column, "timepoint")
+  assert_eq(issues[1].column, "pickup_type")
+  assert_eq(issues[2].column, "drop_off_type")
+  assert_eq(issues[3].column, "continuous_pickup")
+  assert_eq(issues[4].column, "continuous_drop_off")
+}
+
+///|
+test "rejects route continuous settings when a trip uses pickup windows" {
+  let issues = @wayfarer.validate_feed(
+    @wayfarer.GtfsTables::new(
+      None,
+      Some(
+        parse_test_table(
+          "route_id,route_type,continuous_pickup,continuous_drop_off\nR1,3,2,0",
+        ),
+      ),
+      Some(parse_test_table("route_id,service_id,trip_id\nR1,WK,T1")),
+      Some(
+        parse_test_table(
+          "trip_id,stop_sequence,stop_id,start_pickup_drop_off_window,end_pickup_drop_off_window,pickup_type,drop_off_type\nT1,1,S1,09:00:00,09:10:00,1,1\nT1,2,S2,09:20:00,09:30:00,1,1",
+        ),
+      ),
+    ),
+  )
+  assert_eq(issues.length(), 2)
+  assert_eq(issues[0].code, "forbidden_with_pickup_drop_off_window")
+  assert_eq(issues[0].file, "routes.txt")
+  assert_eq(issues[0].line, 2)
+  assert_eq(issues[0].column, "continuous_pickup")
+  assert_eq(issues[1].file, "routes.txt")
+  assert_eq(issues[1].column, "continuous_drop_off")
+}
+
+///|
+test "accepts route continuous enums without windows and inherited defaults with windows" {
+  let no_window_issues = @wayfarer.validate_feed(
+    @wayfarer.GtfsTables::new(
+      None,
+      Some(
+        parse_test_table(
+          "route_id,route_type,continuous_pickup,continuous_drop_off\nR1,3,0,2",
+        ),
+      ),
+      Some(parse_test_table("route_id,service_id,trip_id\nR1,WK,T1")),
+      Some(
+        parse_test_table(
+          "trip_id,stop_sequence,stop_id,arrival_time\nT1,1,S1,09:00:00\nT1,2,S2,09:10:00",
+        ),
+      ),
+    ),
+  )
+  assert_eq(no_window_issues.length(), 0)
+  let inherited_default_issues = @wayfarer.validate_feed(
+    @wayfarer.GtfsTables::new(
+      None,
+      Some(
+        parse_test_table(
+          "route_id,route_type,continuous_pickup,continuous_drop_off\nR1,3,,",
+        ),
+      ),
+      Some(parse_test_table("route_id,service_id,trip_id\nR1,WK,T1")),
+      Some(
+        parse_test_table(
+          "trip_id,stop_sequence,stop_id,start_pickup_drop_off_window,end_pickup_drop_off_window,pickup_type,drop_off_type\nT1,1,S1,09:00:00,09:10:00,1,1\nT1,2,S2,09:20:00,09:30:00,1,1",
+        ),
+      ),
+    ),
+  )
+  assert_eq(inherited_default_issues.length(), 0)
+}
+
+///|
+test "rejects route continuous enum values outside the GTFS set" {
+  let issues = @wayfarer.validate_feed(
+    @wayfarer.GtfsTables::new(
+      None,
+      Some(
+        parse_test_table(
+          "route_id,route_type,continuous_pickup,continuous_drop_off\nR1,3,4,x",
+        ),
+      ),
+      Some(parse_test_table("route_id,service_id,trip_id\nR1,WK,T1")),
+      Some(
+        parse_test_table(
+          "trip_id,stop_sequence,stop_id,arrival_time\nT1,1,S1,09:00:00\nT1,2,S2,09:10:00",
+        ),
+      ),
+    ),
+  )
+  assert_eq(issues.length(), 2)
+  assert_eq(issues[0].code, "invalid_enum_value")
+  assert_eq(issues[0].file, "routes.txt")
+  assert_eq(issues[0].column, "continuous_pickup")
+  assert_eq(issues[1].line, 2)
+  assert_eq(issues[1].column, "continuous_drop_off")
 }
 
 ///|

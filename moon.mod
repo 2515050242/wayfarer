@@ -30,7 +30,7 @@ keywords = [
 
 preferred_target = "wasm"
 
-description = "A MoonBit CSV dataset-contract toolkit with JSON profiles and bounded GTFS Schedule checks."
+description = "A MoonBit GTFS Schedule preflight checker with reusable CSV contract profiles."
 
 import {
   "moonbitlang/x@0.5.6",

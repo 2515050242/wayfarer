@@ -60,9 +60,12 @@ pub struct FeedIssue {
 /// This checks `stops.stop_id`, `routes.route_id`, and `trips.trip_id` for
 /// uniqueness; stop-time key and schedule fields; trip-to-route and stop-time
 /// references; and trip service references when `calendar.txt` or
-/// `calendar_dates.txt` supplies service IDs. It requires `stop_id` in the
-/// supported fixed-stop profile, but does not check other conditional fields
-/// or whether the supplied tables satisfy the remaining header profile.
+/// `calendar_dates.txt` supplies service IDs. It also checks the supported
+/// service-calendar date fields and stop-time window rules, plus route-level
+/// continuous-service constraints when route, trip, and stop-time context is
+/// available. It requires `stop_id` in the supported fixed-stop profile, but
+/// does not check all conditional fields or whether the supplied tables satisfy
+/// the remaining header profile.
 pub fn validate_feed(tables : GtfsTables) -> Array[FeedIssue] {
   let issues : Array[FeedIssue] = []
   let mut stop_ids : Map[String, Int32] = Map([])
@@ -78,8 +81,10 @@ pub fn validate_feed(tables : GtfsTables) -> Array[FeedIssue] {
     None => ()
   }
   match tables.routes {
-    Some(table) =>
+    Some(table) => {
       route_ids = index_unique_id(table, "routes.txt", "route_id", issues)
+      check_route_continuous_enums(table, issues)
+    }
     None => ()
   }
   match tables.trips {
@@ -90,14 +95,17 @@ pub fn validate_feed(tables : GtfsTables) -> Array[FeedIssue] {
 
   let service_ids : Map[String, Int32] = Map([])
   match tables.calendar {
-    Some(table) =>
+    Some(table) => {
       index_service_ids(table, "calendar.txt", service_ids, issues, true)
+      check_calendar_values(table, issues)
+    }
     None => ()
   }
   match tables.calendar_dates {
     Some(table) => {
       index_service_ids(table, "calendar_dates.txt", service_ids, issues, false)
       check_calendar_date_keys(table, issues)
+      check_calendar_dates_values(table, issues)
     }
     None => ()
   }
@@ -157,6 +165,11 @@ pub fn validate_feed(tables : GtfsTables) -> Array[FeedIssue] {
         issues,
       )
     None => ()
+  }
+  match (tables.routes, tables.trips, tables.stop_times) {
+    (Some(routes), Some(trips), Some(stop_times)) =>
+      check_route_continuous_windows(routes, trips, stop_times, issues)
+    _ => ()
   }
   issues
 }
@@ -335,6 +348,184 @@ fn check_calendar_date_keys(
 }
 
 ///|
+fn check_calendar_values(table : CsvTable, issues : Array[FeedIssue]) -> Unit {
+  let weekday_columns = [
+    "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+  ]
+  let weekday_indices = weekday_columns.map(fn(column) {
+    table.column_index(column)
+  })
+  let start_index = table.column_index("start_date")
+  let end_index = table.column_index("end_date")
+  for row in table.rows {
+    for index in 0..<weekday_columns.length() {
+      match weekday_indices[index] {
+        Some(column_index) => {
+          let value = row.cells[column_index]
+          if value != "0" && value != "1" {
+            add_calendar_issue(
+              row,
+              "calendar.txt",
+              weekday_columns[index],
+              value,
+              if value == "" {
+                "missing_required_value"
+              } else {
+                "invalid_enum_value"
+              },
+              weekday_columns[index] + " must be 0 or 1",
+              issues,
+            )
+          }
+        }
+        None => ()
+      }
+    }
+
+    let start_date = csv_cell(row, start_index)
+    let end_date = csv_cell(row, end_index)
+    let start_valid = is_valid_gtfs_date(start_date)
+    let end_valid = is_valid_gtfs_date(end_date)
+    match start_index {
+      Some(_) =>
+        check_required_gtfs_date(
+          row, "calendar.txt", "start_date", start_date, start_valid, issues,
+        )
+      None => ()
+    }
+    match end_index {
+      Some(_) =>
+        check_required_gtfs_date(
+          row, "calendar.txt", "end_date", end_date, end_valid, issues,
+        )
+      None => ()
+    }
+    match (start_index, end_index) {
+      (Some(_), Some(_)) if start_valid && end_valid => {
+        let start_value = parse_non_negative_integer(start_date)
+        let end_value = parse_non_negative_integer(end_date)
+        match (start_value, end_value) {
+          (Some(start), Some(end)) if end < start =>
+            add_calendar_issue(
+              row, "calendar.txt", "end_date", end_date, "invalid_date_range", "end_date must not precede start_date",
+              issues,
+            )
+          _ => ()
+        }
+      }
+      _ => ()
+    }
+  }
+}
+
+///|
+fn check_calendar_dates_values(
+  table : CsvTable,
+  issues : Array[FeedIssue],
+) -> Unit {
+  let date_index = table.column_index("date")
+  let exception_index = table.column_index("exception_type")
+  for row in table.rows {
+    let date = csv_cell(row, date_index)
+    if date != "" && !is_valid_gtfs_date(date) {
+      add_calendar_issue(
+        row, "calendar_dates.txt", "date", date, "invalid_date", "date must be a valid Gregorian date in YYYYMMDD format",
+        issues,
+      )
+    }
+    match exception_index {
+      Some(column_index) => {
+        let value = row.cells[column_index]
+        if value != "1" && value != "2" {
+          add_calendar_issue(
+            row,
+            "calendar_dates.txt",
+            "exception_type",
+            value,
+            if value == "" {
+              "missing_required_value"
+            } else {
+              "invalid_enum_value"
+            },
+            "exception_type must be 1 or 2",
+            issues,
+          )
+        }
+      }
+      None => ()
+    }
+  }
+}
+
+///|
+fn check_required_gtfs_date(
+  row : CsvRow,
+  file : String,
+  column : String,
+  value : String,
+  valid : Bool,
+  issues : Array[FeedIssue],
+) -> Unit {
+  if value == "" {
+    add_calendar_issue(
+      row,
+      file,
+      column,
+      value,
+      "missing_required_value",
+      column + " is required",
+      issues,
+    )
+  } else if !valid {
+    add_calendar_issue(
+      row, file, column, value, "invalid_date", "date must be a valid Gregorian date in YYYYMMDD format",
+      issues,
+    )
+  }
+}
+
+///|
+fn add_calendar_issue(
+  row : CsvRow,
+  file : String,
+  column : String,
+  value : String,
+  code : String,
+  message : String,
+  issues : Array[FeedIssue],
+) -> Unit {
+  issues.push(FeedIssue::{ code, file, line: row.line, column, value, message, })
+}
+
+///|
+fn is_valid_gtfs_date(value : String) -> Bool {
+  if value.length() != 8 {
+    false
+  } else {
+    match parse_non_negative_integer(value) {
+      None => false
+      Some(date) => {
+        let year = date / 10000
+        let month = date / 100 % 100
+        let day = date % 100
+        let days_in_month = match month {
+          1 | 3 | 5 | 7 | 8 | 10 | 12 => 31
+          4 | 6 | 9 | 11 => 30
+          2 =>
+            if year % 400 == 0 || (year % 4 == 0 && year % 100 != 0) {
+              29
+            } else {
+              28
+            }
+          _ => 0
+        }
+        year > 0 && day > 0 && day <= days_in_month
+      }
+    }
+  }
+}
+
+///|
 fn index_service_ids(
   table : CsvTable,
   file : String,
@@ -509,6 +700,7 @@ fn check_stop_time_semantics(
   table : CsvTable,
   issues : Array[FeedIssue],
 ) -> Unit {
+  check_stop_time_window_and_enum_fields(table, issues)
   let timed_stops : Array[TimedStop] = []
   match (table.column_index("trip_id"), table.column_index("stop_sequence")) {
     (Some(trip_column), Some(sequence_column)) => {
@@ -642,6 +834,363 @@ fn check_stop_time_semantics(
 }
 
 ///|
+fn check_stop_time_window_and_enum_fields(
+  table : CsvTable,
+  issues : Array[FeedIssue],
+) -> Unit {
+  let timepoint_column = table.column_index("timepoint")
+  let pickup_column = table.column_index("pickup_type")
+  let drop_off_column = table.column_index("drop_off_type")
+  let continuous_pickup_column = table.column_index("continuous_pickup")
+  let continuous_drop_off_column = table.column_index("continuous_drop_off")
+  let start_window_column = table.column_index("start_pickup_drop_off_window")
+  let end_window_column = table.column_index("end_pickup_drop_off_window")
+  let arrival_column = table.column_index("arrival_time")
+  let departure_column = table.column_index("departure_time")
+  for row in table.rows {
+    check_stop_time_enum(
+      row,
+      timepoint_column,
+      "timepoint",
+      ["0", "1"],
+      "timepoint must be empty, 0, or 1",
+      issues,
+    )
+    check_stop_time_enum(
+      row,
+      pickup_column,
+      "pickup_type",
+      ["0", "1", "2", "3"],
+      "pickup_type must be empty or one of 0, 1, 2, or 3",
+      issues,
+    )
+    check_stop_time_enum(
+      row,
+      drop_off_column,
+      "drop_off_type",
+      ["0", "1", "2", "3"],
+      "drop_off_type must be empty or one of 0, 1, 2, or 3",
+      issues,
+    )
+    check_stop_time_enum(
+      row,
+      continuous_pickup_column,
+      "continuous_pickup",
+      ["0", "1", "2", "3"],
+      "continuous_pickup must be empty or one of 0, 1, 2, or 3",
+      issues,
+    )
+    check_stop_time_enum(
+      row,
+      continuous_drop_off_column,
+      "continuous_drop_off",
+      ["0", "1", "2", "3"],
+      "continuous_drop_off must be empty or one of 0, 1, 2, or 3",
+      issues,
+    )
+
+    let start = csv_cell(row, start_window_column)
+    let end = csv_cell(row, end_window_column)
+    let has_window = start != "" || end != ""
+    if start != "" && end == "" {
+      add_stop_time_field_issue(
+        row, "end_pickup_drop_off_window", "", "missing_required_window_bound", "end_pickup_drop_off_window is required when a start window is supplied",
+        issues,
+      )
+    }
+    if end != "" && start == "" {
+      add_stop_time_field_issue(
+        row, "start_pickup_drop_off_window", "", "missing_required_window_bound",
+        "start_pickup_drop_off_window is required when an end window is supplied",
+        issues,
+      )
+    }
+    if start != "" && gtfs_time_seconds(start) is None {
+      add_stop_time_field_issue(
+        row, "start_pickup_drop_off_window", start, "invalid_time", "time must use H:MM:SS or HH:MM:SS with minutes and seconds from 00 to 59",
+        issues,
+      )
+    }
+    if end != "" && gtfs_time_seconds(end) is None {
+      add_stop_time_field_issue(
+        row, "end_pickup_drop_off_window", end, "invalid_time", "time must use H:MM:SS or HH:MM:SS with minutes and seconds from 00 to 59",
+        issues,
+      )
+    }
+    match (gtfs_time_seconds(start), gtfs_time_seconds(end)) {
+      (Some(start_seconds), Some(end_seconds)) if end_seconds <= start_seconds =>
+        add_stop_time_field_issue(
+          row, "end_pickup_drop_off_window", end, "invalid_time_window", "end_pickup_drop_off_window must be later than start_pickup_drop_off_window",
+          issues,
+        )
+      _ => ()
+    }
+
+    if has_window {
+      if csv_cell(row, timepoint_column) == "1" {
+        add_stop_time_field_issue(
+          row, "timepoint", "1", "incompatible_stop_time_fields", "timepoint 1 requires exact times, which are forbidden with a pickup/drop-off window",
+          issues,
+        )
+      }
+      check_window_forbidden_value(row, arrival_column, "arrival_time", issues)
+      check_window_forbidden_value(
+        row, departure_column, "departure_time", issues,
+      )
+      check_window_forbidden_enum(
+        row,
+        pickup_column,
+        "pickup_type",
+        ["", "0", "3"],
+        "pickup_type must be 1 or 2 when a pickup/drop-off window is defined",
+        issues,
+      )
+      check_window_forbidden_enum(
+        row,
+        drop_off_column,
+        "drop_off_type",
+        ["", "0"],
+        "drop_off_type must not be empty or 0 when a pickup/drop-off window is defined",
+        issues,
+      )
+      check_window_forbidden_enum(
+        row,
+        continuous_pickup_column,
+        "continuous_pickup",
+        ["0", "2", "3"],
+        "continuous_pickup must be 1 or empty when a pickup/drop-off window is defined",
+        issues,
+      )
+      check_window_forbidden_enum(
+        row,
+        continuous_drop_off_column,
+        "continuous_drop_off",
+        ["0", "2", "3"],
+        "continuous_drop_off must be 1 or empty when a pickup/drop-off window is defined",
+        issues,
+      )
+    }
+  }
+}
+
+///|
+fn csv_cell(row : CsvRow, column : Int32?) -> String {
+  match column {
+    Some(index) => row.cells[index]
+    None => ""
+  }
+}
+
+///|
+fn check_stop_time_enum(
+  row : CsvRow,
+  column_index : Int32?,
+  column : String,
+  allowed : Array[String],
+  message : String,
+  issues : Array[FeedIssue],
+) -> Unit {
+  match column_index {
+    Some(index) => {
+      let value = row.cells[index]
+      if value != "" && !allowed.contains(value) {
+        add_stop_time_field_issue(
+          row, column, value, "invalid_enum_value", message, issues,
+        )
+      }
+    }
+    None => ()
+  }
+}
+
+///|
+fn check_window_forbidden_value(
+  row : CsvRow,
+  column_index : Int32?,
+  column : String,
+  issues : Array[FeedIssue],
+) -> Unit {
+  let value = csv_cell(row, column_index)
+  if value != "" {
+    add_stop_time_field_issue(
+      row,
+      column,
+      value,
+      "forbidden_with_pickup_drop_off_window",
+      column + " must be empty when a pickup/drop-off window is defined",
+      issues,
+    )
+  }
+}
+
+///|
+fn check_window_forbidden_enum(
+  row : CsvRow,
+  column_index : Int32?,
+  column : String,
+  forbidden : Array[String],
+  message : String,
+  issues : Array[FeedIssue],
+) -> Unit {
+  let value = csv_cell(row, column_index)
+  if forbidden.contains(value) {
+    add_stop_time_field_issue(
+      row, column, value, "forbidden_with_pickup_drop_off_window", message, issues,
+    )
+  }
+}
+
+///|
+fn add_stop_time_field_issue(
+  row : CsvRow,
+  column : String,
+  value : String,
+  code : String,
+  message : String,
+  issues : Array[FeedIssue],
+) -> Unit {
+  issues.push(FeedIssue::{
+    code,
+    file: "stop_times.txt",
+    line: row.line,
+    column,
+    value,
+    message,
+  })
+}
+
+///|
+fn check_route_continuous_windows(
+  routes : CsvTable,
+  trips : CsvTable,
+  stop_times : CsvTable,
+  issues : Array[FeedIssue],
+) -> Unit {
+  let trips_with_windows : Map[String, Bool] = Map([])
+  match stop_times.column_index("trip_id") {
+    Some(trip_column) => {
+      let start_column = stop_times.column_index("start_pickup_drop_off_window")
+      let end_column = stop_times.column_index("end_pickup_drop_off_window")
+      for row in stop_times.rows {
+        let trip_id = row.cells[trip_column]
+        let has_start = match start_column {
+          Some(index) => row.cells[index] != ""
+          None => false
+        }
+        let has_end = match end_column {
+          Some(index) => row.cells[index] != ""
+          None => false
+        }
+        if trip_id != "" && (has_start || has_end) {
+          trips_with_windows.set(trip_id, true)
+        }
+      }
+    }
+    None => ()
+  }
+
+  let routes_with_windows : Map[String, Bool] = Map([])
+  match (trips.column_index("trip_id"), trips.column_index("route_id")) {
+    (Some(trip_column), Some(route_column)) =>
+      for row in trips.rows {
+        let trip_id = row.cells[trip_column]
+        let route_id = row.cells[route_column]
+        if route_id != "" && trips_with_windows.get(trip_id) is Some(_) {
+          routes_with_windows.set(route_id, true)
+        }
+      }
+    _ => ()
+  }
+
+  let route_id_column = routes.column_index("route_id")
+  let continuous_pickup_column = routes.column_index("continuous_pickup")
+  let continuous_drop_off_column = routes.column_index("continuous_drop_off")
+  match route_id_column {
+    Some(route_id_column) =>
+      for row in routes.rows {
+        let route_id = row.cells[route_id_column]
+        if routes_with_windows.get(route_id) is Some(_) {
+          check_route_continuous_window_value(
+            row, continuous_pickup_column, "continuous_pickup", issues,
+          )
+          check_route_continuous_window_value(
+            row, continuous_drop_off_column, "continuous_drop_off", issues,
+          )
+        }
+      }
+    None => ()
+  }
+}
+
+///|
+fn check_route_continuous_enums(
+  routes : CsvTable,
+  issues : Array[FeedIssue],
+) -> Unit {
+  let continuous_pickup_column = routes.column_index("continuous_pickup")
+  let continuous_drop_off_column = routes.column_index("continuous_drop_off")
+  for row in routes.rows {
+    check_route_continuous_enum(
+      row, continuous_pickup_column, "continuous_pickup", issues,
+    )
+    check_route_continuous_enum(
+      row, continuous_drop_off_column, "continuous_drop_off", issues,
+    )
+  }
+}
+
+///|
+fn check_route_continuous_enum(
+  row : CsvRow,
+  column_index : Int32?,
+  column : String,
+  issues : Array[FeedIssue],
+) -> Unit {
+  match column_index {
+    Some(index) => {
+      let value = row.cells[index]
+      if value != "" && !["0", "1", "2", "3"].contains(value) {
+        issues.push(FeedIssue::{
+          code: "invalid_enum_value",
+          file: "routes.txt",
+          line: row.line,
+          column,
+          value,
+          message: column + " must be empty or one of 0, 1, 2, or 3",
+        })
+      }
+    }
+    None => ()
+  }
+}
+
+///|
+fn check_route_continuous_window_value(
+  row : CsvRow,
+  column_index : Int32?,
+  column : String,
+  issues : Array[FeedIssue],
+) -> Unit {
+  match column_index {
+    Some(index) => {
+      let value = row.cells[index]
+      if ["0", "2", "3"].contains(value) {
+        issues.push(FeedIssue::{
+          code: "forbidden_with_pickup_drop_off_window",
+          file: "routes.txt",
+          line: row.line,
+          column,
+          value,
+          message: column +
+          " must be 1 or empty when a trip on this route defines a pickup/drop-off window",
+        })
+      }
+    }
+    None => ()
+  }
+}
+
+///|
 priv struct TimedStop {
   trip_id : String
   sequence : Int32
@@ -723,22 +1272,24 @@ fn check_stop_time_order(
       previous_trip = stop.trip_id
       previous_time = None
     }
-    previous_time = check_time_order_event(
-      stop.arrival_text,
-      stop.arrival_seconds,
-      "arrival_time",
-      stop,
-      previous_time,
-      issues,
-    )
-    previous_time = check_time_order_event(
-      stop.departure_text,
-      stop.departure_seconds,
-      "departure_time",
-      stop,
-      previous_time,
-      issues,
-    )
+    if !stop.has_pickup_drop_off_window {
+      previous_time = check_time_order_event(
+        stop.arrival_text,
+        stop.arrival_seconds,
+        "arrival_time",
+        stop,
+        previous_time,
+        issues,
+      )
+      previous_time = check_time_order_event(
+        stop.departure_text,
+        stop.departure_seconds,
+        "departure_time",
+        stop,
+        previous_time,
+        issues,
+      )
+    }
   }
 }
 

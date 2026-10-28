@@ -1,0 +1,2 @@
+route_id,route_type,continuous_pickup,continuous_drop_off
+R1,3,2,0

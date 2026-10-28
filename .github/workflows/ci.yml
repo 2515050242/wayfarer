@@ -160,6 +160,41 @@ jobs:
           printf '%s\n' "$output" | grep -F 'ERROR calendar.txt/calendar_dates.txt [missing_service_calendar] at least one service calendar file is required'
           printf '%s\n' "$output" | grep -Fx 'FAIL: 5 parsed files, 7 records, 1 finding'
 
+      - name: Validate stop-time windows and conditional fields
+        shell: bash
+        run: |
+          set +e
+          output=$(moon run cmd/main examples/stop-time-conditional-errors 2>&1)
+          status=$?
+          set -e
+          printf '%s\n' "$output"
+          test "$status" -eq 1
+          printf '%s\n' "$output" | grep -Fx 'ERROR stop_times.txt:2 timepoint="2" [invalid_enum_value] timepoint must be empty, 0, or 1'
+          printf '%s\n' "$output" | grep -Fx 'ERROR stop_times.txt:2 arrival_time="09:00:00" [forbidden_with_pickup_drop_off_window] arrival_time must be empty when a pickup/drop-off window is defined'
+          printf '%s\n' "$output" | grep -Fx 'ERROR stop_times.txt:2 departure_time="09:01:00" [forbidden_with_pickup_drop_off_window] departure_time must be empty when a pickup/drop-off window is defined'
+          printf '%s\n' "$output" | grep -Fx 'ERROR stop_times.txt:2 pickup_type="0" [forbidden_with_pickup_drop_off_window] pickup_type must be 1 or 2 when a pickup/drop-off window is defined'
+          printf '%s\n' "$output" | grep -Fx 'ERROR stop_times.txt:2 drop_off_type="0" [forbidden_with_pickup_drop_off_window] drop_off_type must not be empty or 0 when a pickup/drop-off window is defined'
+          printf '%s\n' "$output" | grep -Fx 'ERROR stop_times.txt:2 continuous_pickup="2" [forbidden_with_pickup_drop_off_window] continuous_pickup must be 1 or empty when a pickup/drop-off window is defined'
+          printf '%s\n' "$output" | grep -Fx 'ERROR stop_times.txt:2 continuous_drop_off="0" [forbidden_with_pickup_drop_off_window] continuous_drop_off must be 1 or empty when a pickup/drop-off window is defined'
+          printf '%s\n' "$output" | grep -Fx 'ERROR routes.txt:2 continuous_pickup="2" [forbidden_with_pickup_drop_off_window] continuous_pickup must be 1 or empty when a trip on this route defines a pickup/drop-off window'
+          printf '%s\n' "$output" | grep -Fx 'ERROR routes.txt:2 continuous_drop_off="0" [forbidden_with_pickup_drop_off_window] continuous_drop_off must be 1 or empty when a trip on this route defines a pickup/drop-off window'
+          printf '%s\n' "$output" | grep -Fx 'FAIL: 7 parsed files, 9 records, 9 findings'
+
+      - name: Validate service-calendar dates and enums
+        shell: bash
+        run: |
+          set +e
+          output=$(moon run cmd/main examples/calendar-semantics-errors 2>&1)
+          status=$?
+          set -e
+          printf '%s\n' "$output"
+          test "$status" -eq 1
+          printf '%s\n' "$output" | grep -Fx 'ERROR calendar.txt:2 monday="2" [invalid_enum_value] monday must be 0 or 1'
+          printf '%s\n' "$output" | grep -Fx 'ERROR calendar.txt:2 end_date="20260101" [invalid_date_range] end_date must not precede start_date'
+          printf '%s\n' "$output" | grep -Fx 'ERROR calendar_dates.txt:2 date="20230229" [invalid_date] date must be a valid Gregorian date in YYYYMMDD format'
+          printf '%s\n' "$output" | grep -Fx 'ERROR calendar_dates.txt:2 exception_type="3" [invalid_enum_value] exception_type must be 1 or 2'
+          printf '%s\n' "$output" | grep -Fx 'FAIL: 7 parsed files, 9 records, 4 findings'
+
       - name: Check invalid feed diagnostics and exit status
         shell: bash
         run: |
@@ -259,6 +294,25 @@ jobs:
           Assert-Failure 'examples/control-character-diagnostic' @(
             'ERROR trips.txt:2 service_id="WK\u001b[31m" [unresolved_reference]',
             'FAIL: 6 parsed files, 8 records, 1 finding'
+          )
+          Assert-Failure 'examples/stop-time-conditional-errors' @(
+            'ERROR stop_times.txt:2 timepoint="2" [invalid_enum_value] timepoint must be empty, 0, or 1',
+            'ERROR stop_times.txt:2 arrival_time="09:00:00" [forbidden_with_pickup_drop_off_window]',
+            'ERROR stop_times.txt:2 departure_time="09:01:00" [forbidden_with_pickup_drop_off_window]',
+            'ERROR stop_times.txt:2 pickup_type="0" [forbidden_with_pickup_drop_off_window]',
+            'ERROR stop_times.txt:2 drop_off_type="0" [forbidden_with_pickup_drop_off_window]',
+            'ERROR stop_times.txt:2 continuous_pickup="2" [forbidden_with_pickup_drop_off_window]',
+            'ERROR stop_times.txt:2 continuous_drop_off="0" [forbidden_with_pickup_drop_off_window]',
+            'ERROR routes.txt:2 continuous_pickup="2" [forbidden_with_pickup_drop_off_window]',
+            'ERROR routes.txt:2 continuous_drop_off="0" [forbidden_with_pickup_drop_off_window]',
+            'FAIL: 7 parsed files, 9 records, 9 findings'
+          )
+          Assert-Failure 'examples/calendar-semantics-errors' @(
+            'ERROR calendar.txt:2 monday="2" [invalid_enum_value] monday must be 0 or 1',
+            'ERROR calendar.txt:2 end_date="20260101" [invalid_date_range] end_date must not precede start_date',
+            'ERROR calendar_dates.txt:2 date="20230229" [invalid_date] date must be a valid Gregorian date in YYYYMMDD format',
+            'ERROR calendar_dates.txt:2 exception_type="3" [invalid_enum_value] exception_type must be 1 or 2',
+            'FAIL: 7 parsed files, 9 records, 4 findings'
           )
 
           $profileValid = & moon run cmd/profile-demo examples/inventory-profile 2>&1
