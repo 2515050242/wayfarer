@@ -36,7 +36,7 @@ pub fn CsvDatasetFieldRule::new(String, CsvDatasetFieldKind, allowed? : Array[St
 pub(all) struct CsvDatasetIssue {
   code : String
   file : String
-  line : Int?
+  line : Int32?
   column : String
   value : String
   message : String
@@ -60,27 +60,27 @@ pub fn CsvDatasetReferenceRule::new(String, String, String, String, Bool) -> Sel
 pub(all) struct CsvDatasetTableRule {
   file : String
   required : Bool
-  minimum_rows : Int
+  minimum_rows : Int32
   required_columns : Array[String]
   non_empty_columns : Array[String]
   unique_keys : Array[Array[String]]
   field_rules : Array[CsvDatasetFieldRule]
 }
-pub fn CsvDatasetTableRule::new(String, Bool, Int, Array[String], Array[String], Array[Array[String]], field_rules? : Array[CsvDatasetFieldRule]) -> Self
+pub fn CsvDatasetTableRule::new(String, Bool, Int32, Array[String], Array[String], Array[Array[String]], field_rules? : Array[CsvDatasetFieldRule]) -> Self
 
 pub enum CsvError {
   EmptyDocument
-  EmptyHeader(line~ : Int, column~ : Int)
-  DuplicateHeader(name~ : String, column~ : Int)
-  UnexpectedQuote(line~ : Int, column~ : Int)
-  CharactersAfterQuote(line~ : Int, column~ : Int)
-  UnterminatedQuote(line~ : Int, column~ : Int)
-  RowWidthMismatch(line~ : Int, expected~ : Int, actual~ : Int)
-  InvalidLineEnding(line~ : Int, column~ : Int)
+  EmptyHeader(line~ : Int32, column~ : Int32)
+  DuplicateHeader(name~ : String, column~ : Int32)
+  UnexpectedQuote(line~ : Int32, column~ : Int32)
+  CharactersAfterQuote(line~ : Int32, column~ : Int32)
+  UnterminatedQuote(line~ : Int32, column~ : Int32)
+  RowWidthMismatch(line~ : Int32, expected~ : Int32, actual~ : Int32)
+  InvalidLineEnding(line~ : Int32, column~ : Int32)
 }
 
 pub struct CsvRow {
-  line : Int
+  line : Int32
   cells : Array[String]
 }
 pub fn CsvRow::get(Self, CsvTable, String) -> String?
@@ -89,12 +89,12 @@ pub struct CsvTable {
   headers : Array[String]
   rows : Array[CsvRow]
 }
-pub fn CsvTable::column_index(Self, String) -> Int?
+pub fn CsvTable::column_index(Self, String) -> Int32?
 
 pub struct FeedIssue {
   code : String
   file : String
-  line : Int
+  line : Int32
   column : String
   value : String
   message : String
@@ -103,7 +103,7 @@ pub struct FeedIssue {
 pub struct FieldValueIssue {
   code : String
   file : String
-  line : Int
+  line : Int32
   column : String
   value : String
   message : String
