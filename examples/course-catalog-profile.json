@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "tables": [
+    {
+      "file": "courses.csv",
+      "required": true,
+      "minimum_rows": 1,
+      "required_columns": ["course_id", "title", "capacity", "start_date", "level"],
+      "non_empty_columns": ["course_id", "title", "capacity", "start_date", "level"],
+      "unique_keys": [["course_id"]],
+      "field_rules": [
+        {"column": "capacity", "type": "integer"},
+        {"column": "start_date", "type": "date"},
+        {
+          "column": "level",
+          "type": "enum",
+          "allowed": ["beginner", "intermediate", "advanced"]
+        }
+      ]
+    },
+    {
+      "file": "sessions.csv",
+      "required": true,
+      "minimum_rows": 1,
+      "required_columns": ["session_id", "course_id", "room", "seats"],
+      "non_empty_columns": ["session_id", "course_id", "room"],
+      "unique_keys": [["session_id"]],
+      "field_rules": [
+        {"column": "seats", "type": "number"}
+      ]
+    }
+  ],
+  "references": [
+    {
+      "source_file": "sessions.csv",
+      "source_column": "course_id",
+      "target_file": "courses.csv",
+      "target_column": "course_id",
+      "required": true
+    }
+  ]
+}

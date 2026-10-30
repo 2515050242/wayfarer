@@ -273,3 +273,152 @@ test "requires non-empty fields and required references" {
   assert_eq(issues[1].file, "orders.csv")
   assert_eq(issues[1].line, Some(2))
 }
+
+///|
+test "checks field rules for integer number date and allowed values" {
+  let tables : Map[String, @wayfarer.CsvTable] = Map([])
+  tables.set(
+    "courses.csv",
+    parse_dataset_test_table(
+      (
+        #|course_id,capacity,seats,start_date,level
+        #|C101,many,25,20261102,beginner
+        #|C102,25,1.5.2,20230229,expert
+        #|C103,-3,25.5,20261103,advanced
+      ),
+    ),
+  )
+  let allowed : Array[String] = ["beginner", "intermediate", "advanced"]
+  let field_rules : Array[@wayfarer.CsvDatasetFieldRule] = [
+    @wayfarer.CsvDatasetFieldRule::new("capacity", @wayfarer.IntegerValue),
+    @wayfarer.CsvDatasetFieldRule::new("seats", @wayfarer.NumberValue),
+    @wayfarer.CsvDatasetFieldRule::new("start_date", @wayfarer.DateValue),
+    @wayfarer.CsvDatasetFieldRule::new(
+      "level",
+      @wayfarer.AllowedValues,
+      allowed~,
+    ),
+  ]
+  let profile = @wayfarer.CsvDatasetProfile::new(
+    [
+      @wayfarer.CsvDatasetTableRule::new(
+        "courses.csv",
+        true,
+        1,
+        ["course_id", "capacity", "seats", "start_date", "level"],
+        ["course_id"],
+        [["course_id"]],
+        field_rules~,
+      ),
+    ],
+    [],
+  )
+  let issues = @wayfarer.validate_csv_dataset(profile, tables)
+  assert_eq(issues.length(), 4)
+  assert_eq(issues[0].code, "invalid_integer_value")
+  assert_eq(issues[0].line, Some(2))
+  assert_eq(issues[0].column, "capacity")
+  assert_eq(issues[0].value, "many")
+  assert_eq(issues[1].code, "invalid_number_value")
+  assert_eq(issues[1].line, Some(3))
+  assert_eq(issues[1].column, "seats")
+  assert_eq(issues[1].value, "1.5.2")
+  assert_eq(issues[2].code, "invalid_date_value")
+  assert_eq(issues[2].line, Some(3))
+  assert_eq(issues[2].column, "start_date")
+  assert_eq(issues[2].value, "20230229")
+  assert_eq(issues[3].code, "value_not_allowed")
+  assert_eq(issues[3].line, Some(3))
+  assert_eq(issues[3].column, "level")
+  assert_eq(issues[3].value, "expert")
+}
+
+///|
+test "reports allowed value findings with the offending value" {
+  let tables : Map[String, @wayfarer.CsvTable] = Map([])
+  tables.set(
+    "enrollments.csv",
+    parse_dataset_test_table("enrollment_id,status\nE1,active\nE2,pending"),
+  )
+  let allowed : Array[String] = ["active", "dropped"]
+  let field_rules : Array[@wayfarer.CsvDatasetFieldRule] = [
+    @wayfarer.CsvDatasetFieldRule::new(
+      "status",
+      @wayfarer.AllowedValues,
+      allowed~,
+    ),
+  ]
+  let profile = @wayfarer.CsvDatasetProfile::new(
+    [
+      @wayfarer.CsvDatasetTableRule::new(
+        "enrollments.csv",
+        true,
+        1,
+        ["enrollment_id", "status"],
+        ["enrollment_id"],
+        [["enrollment_id"]],
+        field_rules~,
+      ),
+    ],
+    [],
+  )
+  let issues = @wayfarer.validate_csv_dataset(profile, tables)
+  assert_eq(issues.length(), 1)
+  assert_eq(issues[0].code, "value_not_allowed")
+  assert_eq(issues[0].line, Some(3))
+  assert_eq(issues[0].value, "pending")
+}
+
+///|
+test "field rules skip empty cells" {
+  let tables : Map[String, @wayfarer.CsvTable] = Map([])
+  tables.set(
+    "courses.csv",
+    parse_dataset_test_table("course_id,capacity\nC101,"),
+  )
+  let field_rules : Array[@wayfarer.CsvDatasetFieldRule] = [
+    @wayfarer.CsvDatasetFieldRule::new("capacity", @wayfarer.IntegerValue),
+  ]
+  let profile = @wayfarer.CsvDatasetProfile::new(
+    [
+      @wayfarer.CsvDatasetTableRule::new(
+        "courses.csv",
+        true,
+        1,
+        ["course_id", "capacity"],
+        ["course_id"],
+        [["course_id"]],
+        field_rules~,
+      ),
+    ],
+    [],
+  )
+  assert_eq(@wayfarer.validate_csv_dataset(profile, tables).length(), 0)
+}
+
+///|
+test "reports a missing column referenced by a field rule" {
+  let tables : Map[String, @wayfarer.CsvTable] = Map([])
+  tables.set("courses.csv", parse_dataset_test_table("course_id\nC101"))
+  let field_rules : Array[@wayfarer.CsvDatasetFieldRule] = [
+    @wayfarer.CsvDatasetFieldRule::new("capacity", @wayfarer.IntegerValue),
+  ]
+  let profile = @wayfarer.CsvDatasetProfile::new(
+    [
+      @wayfarer.CsvDatasetTableRule::new(
+        "courses.csv",
+        true,
+        1,
+        ["course_id"],
+        ["course_id"],
+        [["course_id"]],
+        field_rules~,
+      ),
+    ],
+    [],
+  )
+  let issues = @wayfarer.validate_csv_dataset(profile, tables)
+  assert_eq(issues.length(), 1)
+  assert_eq(issues[0].code, "missing_required_column")
+  assert_eq(issues[0].column, "capacity")
+}

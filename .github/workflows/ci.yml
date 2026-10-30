@@ -97,6 +97,32 @@ jobs:
           printf '%s\n' "$invalid_output" | grep -Fx 'ERROR enrollments.csv:2 class_id="C9" [unresolved_reference] referenced value does not exist in classes.csv'
           printf '%s\n' "$invalid_output" | grep -Fx 'FAIL: 3 CSV tables, 7 records, 2 findings'
 
+      - name: Exercise field rules and the JSON report
+        shell: bash
+        run: |
+          valid_output=$(moon run cmd/csv-check examples/course-catalog-profile.json examples/course-catalog 2>&1)
+          printf '%s\n' "$valid_output"
+          printf '%s\n' "$valid_output" | grep -Fx 'PASS: 2 CSV tables, 4 records, 0 findings'
+          set +e
+          invalid_output=$(moon run cmd/csv-check examples/course-catalog-profile.json examples/course-catalog-invalid 2>&1)
+          invalid_status=$?
+          json_output=$(moon run cmd/csv-check examples/course-catalog-profile.json examples/course-catalog-invalid --json 2>&1)
+          json_status=$?
+          set -e
+          printf '%s\n' "$invalid_output"
+          test "$invalid_status" -eq 1
+          printf '%s\n' "$invalid_output" | grep -Fx 'FAIL: 2 CSV tables, 4 records, 5 findings'
+          printf '%s\n' "$invalid_output" | grep -F 'ERROR courses.csv:2 capacity=' | grep -F '[invalid_integer_value]'
+          printf '%s\n' "$invalid_output" | grep -F 'ERROR courses.csv:3 start_date=' | grep -F '[invalid_date_value]'
+          printf '%s\n' "$invalid_output" | grep -F 'ERROR courses.csv:3 level=' | grep -F '[value_not_allowed]'
+          printf '%s\n' "$invalid_output" | grep -F 'ERROR sessions.csv:3 seats=' | grep -F '[invalid_number_value]'
+          printf '%s\n' "$invalid_output" | grep -F 'ERROR sessions.csv:3 course_id=' | grep -F '[unresolved_reference]'
+          printf '%s\n' "$json_output"
+          test "$json_status" -eq 1
+          printf '%s\n' "$json_output" | grep -F '"count":5'
+          printf '%s\n' "$json_output" | grep -F '"passed":false'
+          printf '%s\n' "$json_output" | grep -F '"code":"invalid_integer_value"'
+
       - name: Reject empty required tables and one-stop trips
         shell: bash
         run: |
@@ -365,5 +391,26 @@ jobs:
           Write-Output $enrollmentInvalidText
           if ($enrollmentInvalidStatus -ne 1 -or -not $enrollmentInvalidText.Contains('ERROR enrollments.csv:4 learner_id,class_id="L1,C1" [duplicate_key]') -or -not $enrollmentInvalidText.Contains('ERROR enrollments.csv:2 class_id="C9" [unresolved_reference]') -or -not $enrollmentInvalidText.Contains('FAIL: 3 CSV tables, 7 records, 2 findings')) {
             throw 'The second synthetic CSV profile did not report its duplicate key and unresolved reference.'
+          }
+          $catalogValid = & moon run cmd/csv-check examples/course-catalog-profile.json examples/course-catalog 2>&1
+          $catalogValidStatus = $LASTEXITCODE
+          $catalogValidText = $catalogValid -join "`n"
+          Write-Output $catalogValidText
+          if ($catalogValidStatus -ne 0 -or -not $catalogValidText.Contains('PASS: 2 CSV tables, 4 records, 0 findings')) {
+            throw 'The course catalog profile did not pass.'
+          }
+          $catalogInvalid = & moon run cmd/csv-check examples/course-catalog-profile.json examples/course-catalog-invalid 2>&1
+          $catalogInvalidStatus = $LASTEXITCODE
+          $catalogInvalidText = $catalogInvalid -join "`n"
+          Write-Output $catalogInvalidText
+          if ($catalogInvalidStatus -ne 1 -or -not $catalogInvalidText.Contains('FAIL: 2 CSV tables, 4 records, 5 findings') -or -not $catalogInvalidText.Contains('[invalid_integer_value]') -or -not $catalogInvalidText.Contains('[invalid_date_value]') -or -not $catalogInvalidText.Contains('[value_not_allowed]') -or -not $catalogInvalidText.Contains('[invalid_number_value]')) {
+            throw 'The course catalog profile did not report its field rule findings.'
+          }
+          $catalogJson = & moon run cmd/csv-check examples/course-catalog-profile.json examples/course-catalog-invalid --json 2>&1
+          $catalogJsonStatus = $LASTEXITCODE
+          $catalogJsonText = $catalogJson -join "`n"
+          Write-Output $catalogJsonText
+          if ($catalogJsonStatus -ne 1 -or -not $catalogJsonText.Contains('"count":5') -or -not $catalogJsonText.Contains('"passed":false')) {
+            throw 'The JSON report did not encode the course catalog findings.'
           }
           exit 0

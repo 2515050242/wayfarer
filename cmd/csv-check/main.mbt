@@ -1,11 +1,22 @@
 ///|
 fn main {
   let args = @env.args()
-  if args.length() != 3 {
+  if args.length() != 3 && args.length() != 4 {
     println(
-      "Usage: moon run cmd/csv-check <profile.json> <csv-dataset-directory>",
+      "Usage: moon run cmd/csv-check <profile.json> <csv-dataset-directory> [--json]",
     )
     @sys.exit(2)
+  }
+  let json_mode = if args.length() == 4 {
+    if args[3] == "--json" {
+      true
+    } else {
+      println("ERROR " + args[3] + " [unknown_option] expected --json")
+      @sys.exit(2)
+      abort("unreachable")
+    }
+  } else {
+    false
   }
   let profile_path = args[1]
   let directory = args[2]
@@ -84,8 +95,15 @@ fn main {
       }
     }
   }
-  println("Wayfarer: checking CSV profile in " + directory)
   let issues = @wayfarer.validate_csv_dataset(profile, tables)
+  if json_mode {
+    println(@wayfarer.csv_dataset_issues_to_json(issues))
+    if issues.length() != 0 {
+      @sys.exit(1)
+    }
+    return
+  }
+  println("Wayfarer: checking CSV profile in " + directory)
   for issue in issues {
     let location = match issue.line {
       Some(line) => issue.file + ":" + line.to_string()

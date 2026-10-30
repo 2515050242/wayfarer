@@ -106,9 +106,31 @@ fn parse_profile_table(
     Ok(value) => value
     Err(message) => return Err(message)
   }
+  let field_rule_json : Array[Json] = match
+    decode_optional_profile_field(object, "field_rules", path~) {
+    Ok(value) => value
+    Err(message) => return Err(message)
+  }
+  let field_rules : Array[CsvDatasetFieldRule] = []
+  for index, entry in field_rule_json {
+    match
+      parse_profile_field_rule(
+        entry,
+        path + ".field_rules[" + index.to_string() + "]",
+      ) {
+      Ok(rule) => field_rules.push(rule)
+      Err(message) => return Err(message)
+    }
+  }
   Ok(
     CsvDatasetTableRule::new(
-      file, required, minimum_rows, required_columns, non_empty_columns, unique_keys,
+      file,
+      required,
+      minimum_rows,
+      required_columns,
+      non_empty_columns,
+      unique_keys,
+      field_rules~,
     ),
   )
 }
@@ -151,6 +173,64 @@ fn parse_profile_reference(
       source_file, source_column, target_file, target_column, required,
     ),
   )
+}
+
+///|
+fn decode_optional_profile_field(
+  object : Map[String, Json],
+  field : String,
+  path~ : String = "profile",
+) -> Result[Array[Json], String] {
+  match object.get(field) {
+    None => Ok([])
+    Some(value) => decode_profile_value(value, path + "." + field)
+  }
+}
+
+///|
+fn parse_profile_field_rule(
+  value : Json,
+  path : String,
+) -> Result[CsvDatasetFieldRule, String] {
+  let object : Map[String, Json] = match decode_profile_value(value, path) {
+    Ok(value) => value
+    Err(message) => return Err(message)
+  }
+  let column : String = match decode_profile_field(object, "column", path~) {
+    Ok(value) => value
+    Err(message) => return Err(message)
+  }
+  if column == "" {
+    return Err("invalid profile at " + path + ".column: must not be empty")
+  }
+  let kind_text : String = match decode_profile_field(object, "type", path~) {
+    Ok(value) => value
+    Err(message) => return Err(message)
+  }
+  let kind : CsvDatasetFieldKind = match kind_text {
+    "integer" => IntegerValue
+    "number" => NumberValue
+    "date" => DateValue
+    "enum" => AllowedValues
+    _ =>
+      return Err(
+        "invalid profile at " +
+        path +
+        ".type: expected integer, number, date, or enum",
+      )
+  }
+  let allowed : Array[String] = if kind_text == "enum" {
+    match decode_profile_field(object, "allowed", path~) {
+      Ok(value) => value
+      Err(message) => return Err(message)
+    }
+  } else {
+    []
+  }
+  if kind_text == "enum" && allowed.length() == 0 {
+    return Err("invalid profile at " + path + ".allowed: must not be empty")
+  }
+  Ok(CsvDatasetFieldRule::new(column, kind, allowed~))
 }
 
 ///|

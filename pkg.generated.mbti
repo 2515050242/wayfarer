@@ -2,6 +2,8 @@
 package "2515050242/wayfarer"
 
 // Values
+pub fn csv_dataset_issues_to_json(Array[CsvDatasetIssue]) -> String
+
 pub fn parse_csv(String) -> Result[CsvTable, CsvError]
 
 pub fn parse_csv_dataset_profile(String) -> Result[CsvDatasetProfile, String]
@@ -17,10 +19,24 @@ pub fn validate_schema(String, CsvTable) -> Array[SchemaIssue]
 // Errors
 
 // Types and methods
+pub(all) enum CsvDatasetFieldKind {
+  IntegerValue
+  NumberValue
+  DateValue
+  AllowedValues
+}
+
+pub(all) struct CsvDatasetFieldRule {
+  column : String
+  kind : CsvDatasetFieldKind
+  allowed : Array[String]
+}
+pub fn CsvDatasetFieldRule::new(String, CsvDatasetFieldKind, allowed? : Array[String]) -> Self
+
 pub(all) struct CsvDatasetIssue {
   code : String
   file : String
-  line : Int32?
+  line : Int?
   column : String
   value : String
   message : String
@@ -44,26 +60,27 @@ pub fn CsvDatasetReferenceRule::new(String, String, String, String, Bool) -> Sel
 pub(all) struct CsvDatasetTableRule {
   file : String
   required : Bool
-  minimum_rows : Int32
+  minimum_rows : Int
   required_columns : Array[String]
   non_empty_columns : Array[String]
   unique_keys : Array[Array[String]]
+  field_rules : Array[CsvDatasetFieldRule]
 }
-pub fn CsvDatasetTableRule::new(String, Bool, Int32, Array[String], Array[String], Array[Array[String]]) -> Self
+pub fn CsvDatasetTableRule::new(String, Bool, Int, Array[String], Array[String], Array[Array[String]], field_rules? : Array[CsvDatasetFieldRule]) -> Self
 
 pub enum CsvError {
   EmptyDocument
-  EmptyHeader(line~ : Int32, column~ : Int32)
-  DuplicateHeader(name~ : String, column~ : Int32)
-  UnexpectedQuote(line~ : Int32, column~ : Int32)
-  CharactersAfterQuote(line~ : Int32, column~ : Int32)
-  UnterminatedQuote(line~ : Int32, column~ : Int32)
-  RowWidthMismatch(line~ : Int32, expected~ : Int32, actual~ : Int32)
-  InvalidLineEnding(line~ : Int32, column~ : Int32)
+  EmptyHeader(line~ : Int, column~ : Int)
+  DuplicateHeader(name~ : String, column~ : Int)
+  UnexpectedQuote(line~ : Int, column~ : Int)
+  CharactersAfterQuote(line~ : Int, column~ : Int)
+  UnterminatedQuote(line~ : Int, column~ : Int)
+  RowWidthMismatch(line~ : Int, expected~ : Int, actual~ : Int)
+  InvalidLineEnding(line~ : Int, column~ : Int)
 }
 
 pub struct CsvRow {
-  line : Int32
+  line : Int
   cells : Array[String]
 }
 pub fn CsvRow::get(Self, CsvTable, String) -> String?
@@ -72,12 +89,12 @@ pub struct CsvTable {
   headers : Array[String]
   rows : Array[CsvRow]
 }
-pub fn CsvTable::column_index(Self, String) -> Int32?
+pub fn CsvTable::column_index(Self, String) -> Int?
 
 pub struct FeedIssue {
   code : String
   file : String
-  line : Int32
+  line : Int
   column : String
   value : String
   message : String
@@ -86,7 +103,7 @@ pub struct FeedIssue {
 pub struct FieldValueIssue {
   code : String
   file : String
-  line : Int32
+  line : Int
   column : String
   value : String
   message : String

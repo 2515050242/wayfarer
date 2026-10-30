@@ -17,6 +17,7 @@ pub(all) struct CsvDatasetTableRule {
   required_columns : Array[String]
   non_empty_columns : Array[String]
   unique_keys : Array[Array[String]]
+  field_rules : Array[CsvDatasetFieldRule]
 }
 
 ///|
@@ -61,6 +62,7 @@ pub fn CsvDatasetTableRule::new(
   required_columns : Array[String],
   non_empty_columns : Array[String],
   unique_keys : Array[Array[String]],
+  field_rules~ : Array[CsvDatasetFieldRule] = [],
 ) -> CsvDatasetTableRule {
   CsvDatasetTableRule::{
     file,
@@ -69,6 +71,7 @@ pub fn CsvDatasetTableRule::new(
     required_columns,
     non_empty_columns,
     unique_keys,
+    field_rules,
   }
 }
 
@@ -248,6 +251,7 @@ fn validate_dataset_table(
         }
     }
   }
+  check_dataset_field_rules(rule, table, issues)
   for key_columns in rule.unique_keys {
     if key_columns.length() == 0 {
       add_dataset_issue(

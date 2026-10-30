@@ -72,3 +72,76 @@ test "rejects negative minimum row counts and missing config fields" {
   )
   assert_true(missing_references is Err(_))
 }
+
+///|
+test "loads field rules from a versioned JSON profile" {
+  let profile = match
+    @wayfarer.parse_csv_dataset_profile(
+      (
+        #|{
+        #|  "version": 1,
+        #|  "tables": [{
+        #|    "file": "courses.csv",
+        #|    "required": true,
+        #|    "minimum_rows": 1,
+        #|    "required_columns": ["course_id"],
+        #|    "non_empty_columns": ["course_id"],
+        #|    "unique_keys": [["course_id"]],
+        #|    "field_rules": [
+        #|      {"column": "capacity", "type": "integer"},
+        #|      {"column": "start_date", "type": "date"},
+        #|      {"column": "level", "type": "enum", "allowed": ["beginner", "advanced"]}
+        #|    ]
+        #|  }],
+        #|  "references": []
+        #|}
+      ),
+    ) {
+    Ok(value) => value
+    Err(message) => {
+      println(message)
+      abort(message)
+    }
+  }
+  assert_eq(profile.tables.length(), 1)
+  assert_eq(profile.tables[0].field_rules.length(), 3)
+  assert_eq(profile.tables[0].field_rules[0].column, "capacity")
+  assert_eq(profile.tables[0].field_rules[2].allowed.length(), 2)
+}
+
+///|
+test "rejects invalid field rule declarations" {
+  let bad_type = @wayfarer.parse_csv_dataset_profile(
+    (
+      #|{"version":1,"tables":[{"file":"courses.csv","required":true,"minimum_rows":1,"required_columns":[],"non_empty_columns":[],"unique_keys":[],"field_rules":[{"column":"capacity","type":"percent"}]}],"references":[]}
+    ),
+  )
+  assert_true(
+    bad_type
+    is Err(
+      "invalid profile at tables[0].field_rules[0].type: expected integer, number, date, or enum"
+    ),
+  )
+  let enum_without_allowed = @wayfarer.parse_csv_dataset_profile(
+    (
+      #|{"version":1,"tables":[{"file":"courses.csv","required":true,"minimum_rows":1,"required_columns":[],"non_empty_columns":[],"unique_keys":[],"field_rules":[{"column":"level","type":"enum"}]}],"references":[]}
+    ),
+  )
+  assert_true(
+    enum_without_allowed
+    is Err(
+      "invalid profile at tables[0].field_rules[0].allowed: field is required"
+    ),
+  )
+  let empty_column = @wayfarer.parse_csv_dataset_profile(
+    (
+      #|{"version":1,"tables":[{"file":"courses.csv","required":true,"minimum_rows":1,"required_columns":[],"non_empty_columns":[],"unique_keys":[],"field_rules":[{"column":"","type":"integer"}]}],"references":[]}
+    ),
+  )
+  assert_true(
+    empty_column
+    is Err(
+      "invalid profile at tables[0].field_rules[0].column: must not be empty"
+    ),
+  )
+}
