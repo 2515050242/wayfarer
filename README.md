@@ -1,26 +1,158 @@
 # Wayfarer
 
-Wayfarer is a MoonBit preflight checker for GTFS Schedule feeds, with an
-additional reusable API and CLI for basic multi-table CSV contracts. The GTFS
-path focuses on transit-specific relationships and stop-time schedule
-semantics. The general CSV path covers table presence, headers, row counts,
-non-empty fields, keys, and references; it is not a general schema or data
-quality framework.
+Wayfarer is a MoonBit library and CLI for checking a directory of related CSV
+files against a declarative dataset contract before the data enters an ETL
+pipeline, an analysis, or a release. It validates multi-table datasets:
+required tables and headers, minimum row counts, non-empty values, single-
+and multi-column unique keys, foreign-key-style references across files, and
+per-column field rules (integer, number, date, allowed values). Findings keep
+the source file, physical line, column, offending value, and a stable code,
+and the CLI can emit a machine-readable JSON report for CI and pipeline
+integration.
 
-The target user is a transit-data maintainer preparing an unzipped feed. The
-CLI catches supported cross-file, schedule, and service-calendar problems
-before a feed is published, with file/row/field findings and a nonzero exit
-status that can be used in a local workflow or CI.
+A built-in GTFS Schedule profile demonstrates a domain profile on top of the
+same engine: it adds transit-specific cross-table, service-calendar, and
+stop-time semantics for a feed directory. The general CSV path is not a
+database, ETL framework, or full schema language; its scope is listed
+explicitly below.
 
-The shared layer provides source-located CSV parsing and profile-driven checks
-for required tables and headers, minimum row counts, non-empty values, unique
-keys, and foreign-key-style references. The built-in GTFS profile adds
-transit-specific schedule checks but does not claim full GTFS conformance; use a
-full GTFS validator when canonical conformance is required.
+Typical datasets are multi-file CSV exports and handoffs: product and order
+files, roster or enrollment sets, or a transit feed produced by another tool.
+Broken references, duplicate keys, and malformed values are cheap to catch
+before ingestion and expensive to debug afterwards, so Wayfarer reports them
+with exact source locations and stable codes.
 
 Every dataset under `examples/` is synthetic and exists for reproducible
 checks. None is presented as production, student, business, or transit-operator
 data.
+
+## Try it
+
+Install the [MoonBit toolchain](https://www.moonbitlang.com/download/), clone
+this repository, run the registry sync once, and check the bundled course
+catalog dataset (a synthetic course and session roster):
+
+```text
+moon update
+moon run cmd/csv-check examples/course-catalog-profile.json examples/course-catalog
+```
+
+Expected output:
+
+```text
+Wayfarer: checking CSV profile in examples/course-catalog
+PASS: 2 CSV tables, 4 records, 0 findings
+```
+
+The invalid fixture shows the field rules and the cross-file reference in
+action. It exits with status 1:
+
+```text
+moon run cmd/csv-check examples/course-catalog-profile.json examples/course-catalog-invalid
+```
+
+```text
+ERROR courses.csv:2 capacity="many" [invalid_integer_value] value must be an optionally signed integer
+ERROR courses.csv:3 start_date="20230229" [invalid_date_value] value must be a valid Gregorian date in YYYYMMDD format
+ERROR courses.csv:3 level="expert" [value_not_allowed] value is not one of the allowed values declared in the profile
+ERROR sessions.csv:3 seats="1.5.2" [invalid_number_value] value must be an integer or decimal number
+ERROR sessions.csv:3 course_id="C999" [unresolved_reference] referenced value does not exist in courses.csv
+FAIL: 2 CSV tables, 4 records, 5 findings
+```
+
+## Dataset profiles
+
+A `CsvDatasetProfile` describes a dataset without adding domain-specific
+logic to the validation engine.
+
+| Table rule | Meaning |
+| --- | --- |
+| `required` | the file must be present |
+| `minimum_rows` | the table must contain at least this many data records |
+| `required_columns` | these headers must exist |
+| `non_empty_columns` | these fields must be non-empty in every record |
+| `unique_keys` | each listed column combination is unique within the table |
+| `field_rules` | per-column value rules (below) |
+
+Reference rules validate values in one table against a declared
+single-column unique key in another table, for example a `course_id` column
+in `sessions.csv` resolving to `courses.csv`. Optional references allow blank
+source values.
+
+### Field rules
+
+| `type` | Accepted values |
+| --- | --- |
+| `integer` | an optionally signed run of digits |
+| `number` | an optionally signed integer or decimal number without exponent |
+| `date` | a valid Gregorian date in `YYYYMMDD` format |
+| `enum` | one of the values listed in `allowed` |
+
+Empty cells are not reported by field rules; use `non_empty_columns` to
+reject them. A field rule on a missing column reports
+`missing_required_column`. Findings use the stable codes
+`invalid_integer_value`, `invalid_number_value`, `invalid_date_value`, and
+`value_not_allowed`, with the source file, line, column, and offending value.
+
+### JSON profile configuration
+
+`cmd/csv-check` reads the same contract from a versioned JSON profile, so a
+dataset can be checked without writing a MoonBit caller. The JSON format
+mirrors the API: one entry per table with the rules above, plus reference
+entries. See
+[`examples/course-catalog-profile.json`](examples/course-catalog-profile.json)
+and
+[`examples/inventory-profile.json`](examples/inventory-profile.json);
+`cmd/profile-demo` remains a compiled-in example of the library API.
+
+### Machine-readable JSON report
+
+`cmd/csv-check --json` prints the findings as a JSON object instead of the
+text report, with the same exit status, for CI pipelines and downstream tools:
+
+```text
+moon run cmd/csv-check examples/course-catalog-profile.json examples/course-catalog-invalid --json
+```
+
+Each finding carries `code`, `file`, `line` (null for file-level findings),
+`column`, `value`, and `message`; the report ends with `count` and `passed`.
+The library exposes the same encoding as `csv_dataset_issues_to_json`.
+
+## Library API
+
+The public API exposes `parse_csv` for source-located CSV text (quoted cells,
+CRLF, BOM, structured `CsvError` results), `CsvDatasetProfile` and its rule
+builders, `validate_csv_dataset` for user-defined contracts,
+`parse_csv_dataset_profile` for version 1 profile JSON, and
+`csv_dataset_issues_to_json` for machine-readable reports. Build a profile
+from table, field, and reference rules, parse each input with `parse_csv`,
+place the results in a `Map[String, CsvTable]`, and pass the map to
+`validate_csv_dataset`. All findings use structured result types.
+
+The only external module dependency is `moonbitlang/x` 0.5.6 for filesystem,
+path, and process-exit support; the parser, config decoding, and validation
+rules are implemented in MoonBit. The upstream module declares Apache-2.0 and
+identifies its packages as experimental.
+
+## Ecosystem positioning
+
+Checked against the Mooncakes index on 2026-10-30:
+
+- [moon-csv-lite](https://mooncakes.io/docs/clhhhhh/moon-csv-lite) (0.1.0)
+  profiles a single CSV table: dialect detection, schema inference, column
+  statistics, and quality contracts per file.
+- [moonverity](https://mooncakes.io/docs/Wchwch777/moonverity) (0.1.2)
+  validates one CSV or JSONL dataset against a per-file contract, with row
+  normalization, quality scores, and CI exits.
+- Wayfarer checks a *directory of related CSV tables* together: required
+  tables, cross-file references, composite unique keys across tables, and
+  physical source locations (file, line, column) in every finding, plus a
+  built-in domain profile (GTFS Schedule).
+
+The single-table tools overlap with Wayfarer on per-file rules; neither of
+them covers cross-table relational integrity or source-located findings for a
+multi-file dataset, which is Wayfarer's focus. Wayfarer does not read JSONL
+and does not infer schemas or score quality; use the other tools for those.
 
 ## Built-in GTFS Schedule profile
 
@@ -124,7 +256,7 @@ GTFS also has conditional requirements and newer location and fare files.
 Wayfarer does not claim to validate those yet; the supported rule set is listed
 explicitly above and will grow in later increments.
 
-## Try it
+## Try the built-in GTFS profile
 
 The command reads an unzipped GTFS directory. Install the [MoonBit
 toolchain](https://www.moonbitlang.com/download/), clone this repository, and
@@ -286,8 +418,8 @@ The public library API exposes `parse_csv` for CSV text,
 `parse_csv_dataset_profile` for version 1 profile JSON, `validate_schema` for
 the built-in GTFS header profile, `validate_gtfs_field_values` and
 `validate_feed` for GTFS checks, and `validate_csv_dataset` for user-defined
-CSV dataset contracts. Build a `CsvDatasetProfile` from table and reference
-rules, parse each input with `parse_csv`, place the results in a
+CSV dataset contracts. Build a `CsvDatasetProfile` from table, field, and
+reference rules, parse each input with `parse_csv`, place the results in a
 `Map[String, CsvTable]`, and pass the map to `validate_csv_dataset`. The JSON
 profile command reads the declared CSV files and constructs the same profile
 model before calling that validator. The GTFS
@@ -309,27 +441,15 @@ commas, doubled quotes, quoted newlines, CRLF input, and a UTF-8 BOM before the
 header are supported. Malformed quoting and rows with the wrong number of
 cells return a structured `CsvError` rather than a partial table.
 
-## Additional API: reusable CSV dataset profiles
+## CSV dataset profile details
 
-`CsvDatasetProfile` lets a MoonBit caller describe a dataset without adding
-domain-specific logic to the validation engine. A table rule can require a
-file, set a minimum row count, list required headers and non-empty columns, and
-declare single- or multi-column unique keys. Reference rules validate values
-against a declared single-column unique key in another table. Findings retain
-the file, source row when available, column, value, stable code, and message.
 Non-empty rules reject empty cells without trimming or normalizing values.
-
-Callers can construct different profiles for inventory exports, ETL staging
-tables, or other multi-file CSV datasets in MoonBit. The `cmd/csv-check`
-command also reads a versioned JSON profile, so a user can run a profile
-without writing a MoonBit caller. The configuration describes CSV files only;
-it does not make JSON or database contents into input data sources. Wayfarer
-does not validate every field type or arbitrary enum rules. `cmd/profile-demo`
-remains a compiled-in example of the library API. See
+Reference rules require the target column to be declared as a single-column
+unique key in the target table, so every referenced value resolves to exactly
+one record. The configuration describes CSV files only; it does not make JSON
+or database contents into input data sources. See
 [`cmd/profile-demo/main.mbt`](cmd/profile-demo/main.mbt) for profile
-construction and API use, and
-[`examples/inventory-profile.json`](examples/inventory-profile.json) for the
-configuration format.
+construction and API use.
 
 Run the JSON-configured checker against the synthetic inventory example:
 

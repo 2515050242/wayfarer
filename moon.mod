@@ -21,16 +21,17 @@ license = "Apache-2.0"
 
 keywords = [
   "csv",
+  "csv-validation",
   "data-quality",
-  "dataset-profile",
+  "dataset-integrity",
   "gtfs",
-  "json-profile",
+  "json-report",
   "validation",
 ]
 
 preferred_target = "wasm"
 
-description = "A MoonBit GTFS Schedule preflight checker with reusable CSV contract profiles."
+description = "A MoonBit multi-table CSV dataset integrity checker with declarative profiles, field rules, JSON reports, and a built-in GTFS Schedule profile."
 
 import {
   "moonbitlang/x@0.5.6",
