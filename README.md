@@ -107,8 +107,8 @@ and
 
 ### Machine-readable JSON report
 
-`cmd/csv-check --json` prints the findings as a JSON object instead of the
-text report, with the same exit status, for CI pipelines and downstream tools:
+Pass `--json` after the dataset directory to get a JSON report for CI and
+downstream tools:
 
 ```text
 moon run cmd/csv-check examples/course-catalog-profile.json examples/course-catalog-invalid --json
@@ -117,6 +117,21 @@ moon run cmd/csv-check examples/course-catalog-profile.json examples/course-cata
 Each finding carries `code`, `file`, `line` (null for file-level findings),
 `column`, `value`, and `message`; the report ends with `count` and `passed`.
 The library exposes the same encoding as `csv_dataset_issues_to_json`.
+
+The CLI exits with `0` when validation passes, `1` when dataset rules fail,
+and `2` when it cannot load the input. With a valid command line, JSON mode
+also reports directory, profile, and CSV input errors using the same format.
+For malformed CSVs it reports the first parse error per file, in profile
+order. A CSV syntax error uses a one-based character position in `column`
+when available. Rule validation starts once all present CSV inputs can be
+read and parsed.
+
+```text
+moon run cmd/csv-check examples/course-catalog-profile.json examples/course-catalog-malformed --json
+```
+
+This returns exit status `2` and two findings: `csv_row_width` in
+`courses.csv:2` and `csv_unterminated_quote` in `sessions.csv:2:7`.
 
 ## Library API
 

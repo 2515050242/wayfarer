@@ -123,6 +123,23 @@ jobs:
           printf '%s\n' "$json_output" | grep -F '"passed":false'
           printf '%s\n' "$json_output" | grep -F '"code":"invalid_integer_value"'
 
+      - name: Report malformed CSVs together
+        shell: pwsh
+        run: |
+          $output = moon run cmd/csv-check examples/course-catalog-profile.json examples/course-catalog-malformed --json
+          $status = $LASTEXITCODE
+          $report = ($output -join "`n") | ConvertFrom-Json
+          if ($status -ne 2 -or $report.passed -ne $false -or $report.count -ne 2 -or
+              $report.findings.Count -ne 2 -or
+              $report.findings[0].code -ne 'csv_row_width' -or
+              $report.findings[0].file -ne 'courses.csv' -or $report.findings[0].line -ne 2 -or
+              $report.findings[1].code -ne 'csv_unterminated_quote' -or
+              $report.findings[1].file -ne 'sessions.csv' -or $report.findings[1].line -ne 2 -or
+              $report.findings[1].column -ne '7') {
+            throw 'Expected one source-located input finding per malformed CSV.'
+          }
+          exit 0
+
       - name: Reject empty required tables and one-stop trips
         shell: bash
         run: |
