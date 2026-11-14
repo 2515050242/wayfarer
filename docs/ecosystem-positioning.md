@@ -11,3 +11,7 @@
 ## 核对方法
 
 以上描述中，moon-csv-lite 与 moonverity 依据其在 Mooncakes 上的公开文档（函数签名与 README）整理，未运行其代码；wayfarer 的描述依据本仓库源码。Wayfarer 尚未发布到 Mooncakes 索引，其版本与文档以 GitHub 仓库为准。Wayfarer 不宣称生态中不存在其他 CSV 工具，仅主张上述差异化能力在核对时点未被上述相邻项目覆盖。
+
+## 2026-11-14 补充核对
+
+Mooncakes 的 CSV 相关搜索还返回 [mbitsv 0.1.0](https://mooncakes.io/docs/CJR-zhang/mbitsv)。其公开 API 提供单表质量门禁、表连接和基于键的表差异比较。Wayfarer 的契约以整个目录为输入，在同一次预检中处理文件读取、CSV 格式和跨表引用规则。核对依据为公开索引、README 与 API 文档。
