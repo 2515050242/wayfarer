@@ -116,32 +116,20 @@ test "rejects invalid field rule declarations" {
       #|{"version":1,"tables":[{"file":"courses.csv","required":true,"minimum_rows":1,"required_columns":[],"non_empty_columns":[],"unique_keys":[],"field_rules":[{"column":"capacity","type":"percent"}]}],"references":[]}
     ),
   )
-  assert_true(
-    bad_type
-    is Err(
-      "invalid profile at tables[0].field_rules[0].type: expected integer, number, date, or enum"
-    ),
-  )
+  let expected = "invalid profile at tables[0].field_rules[0].type: expected integer, number, date, or enum"
+  assert_true(bad_type is Err(message) && message == expected)
   let enum_without_allowed = @wayfarer.parse_csv_dataset_profile(
     (
       #|{"version":1,"tables":[{"file":"courses.csv","required":true,"minimum_rows":1,"required_columns":[],"non_empty_columns":[],"unique_keys":[],"field_rules":[{"column":"level","type":"enum"}]}],"references":[]}
     ),
   )
-  assert_true(
-    enum_without_allowed
-    is Err(
-      "invalid profile at tables[0].field_rules[0].allowed: field is required"
-    ),
-  )
+  let expected = "invalid profile at tables[0].field_rules[0].allowed: field is required"
+  assert_true(enum_without_allowed is Err(message) && message == expected)
   let empty_column = @wayfarer.parse_csv_dataset_profile(
     (
       #|{"version":1,"tables":[{"file":"courses.csv","required":true,"minimum_rows":1,"required_columns":[],"non_empty_columns":[],"unique_keys":[],"field_rules":[{"column":"","type":"integer"}]}],"references":[]}
     ),
   )
-  assert_true(
-    empty_column
-    is Err(
-      "invalid profile at tables[0].field_rules[0].column: must not be empty"
-    ),
-  )
+  let expected = "invalid profile at tables[0].field_rules[0].column: must not be empty"
+  assert_true(empty_column is Err(message) && message == expected)
 }
