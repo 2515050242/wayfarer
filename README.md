@@ -26,6 +26,23 @@ Every dataset under `examples/` is synthetic and exists for reproducible
 checks. None is presented as production, student, business, or transit-operator
 data.
 
+See [reproducible workflows](docs/reproducible-workflows.md) for CSV handoff,
+cross-table checks before importing enrollments, and GTFS publication preflight.
+
+## Install the library
+
+In an existing MoonBit module, add the [Mooncakes release](https://mooncakes.io/docs/2515050242/wayfarer):
+
+```sh
+moon update
+moon add 2515050242/wayfarer@0.1.0
+```
+
+Import `"2515050242/wayfarer"` in your package's `moon.pkg`, then call
+`@wayfarer.parse_csv` for each input and `@wayfarer.validate_csv_dataset`
+for the directory contract. The CLI examples below run from a source
+checkout.
+
 ## Try it
 
 Install the [MoonBit toolchain](https://www.moonbitlang.com/download/), clone
@@ -553,18 +570,23 @@ FAIL: 3 CSV tables, 7 records, 2 findings
 moon fmt
 moon info
 moon check
+moon build
 moon test
 ```
 
-The GitHub Actions workflow runs formatting, package checks, generated-interface
+The GitHub Actions workflow runs formatting, package checks, builds, generated-interface
 consistency, unit tests, and valid/invalid directory examples on Linux and
 Windows for pushes and pull requests.
 
-## Specification
+## Sources and dependencies
 
-Header requirements follow the [GTFS Schedule reference](https://gtfs.org/documentation/schedule/reference/).
-Wayfarer is an independent open-source implementation and is not affiliated
-with the GTFS working group.
+Wayfarer implements its CSV parser, dataset contract checks, and CLI in
+MoonBit. The built-in transit profile uses the
+[GTFS Schedule reference](https://gtfs.org/documentation/schedule/reference/)
+for table and field requirements, service calendars, and stop-time rules.
+The CLI uses [moonbitlang/x](https://github.com/moonbitlang/x) 0.5.6
+(Apache-2.0) for filesystem, path, and process operations.
+The MoonBit toolchain generates the public interface snapshot with `moon info`.
 
 ## License
 

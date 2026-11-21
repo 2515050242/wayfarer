@@ -14,3 +14,7 @@ moon run cmd/csv-check examples/course-catalog-profile.json examples/course-cata
 - 修改后同时报告 `courses.csv:2` 的 `csv_row_width` 和 `sessions.csv:2:7` 的 `csv_unterminated_quote`，退出码为 `2`。
 - 同一契约的正常样例退出 `0`，字段及跨表引用错误样例报告 5 条诊断并退出 `1`。
 - 本地 `moon fmt --check`、`moon check --deny-warn`、`moon test --deny-warn` 通过，86 项测试通过。新增 CI 步骤的断言也已在本地运行。
+
+## 2026-11-15 复现检查
+
+AI 协助梳理了[三个可复跑的使用场景](reproducible-workflows.md)，并在本地运行每个场景的正常和异常样例。六条命令的退出码和诊断均符合文档。另运行了 `moon build` 和 86 项测试，核对了 `moon info` 生成的公共接口。

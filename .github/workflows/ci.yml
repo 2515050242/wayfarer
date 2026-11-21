@@ -31,6 +31,9 @@ jobs:
       - name: Check package
         run: moon check
 
+      - name: Build packages
+        run: moon build
+
       - name: Check generated public interface
         run: |
           moon info
@@ -284,6 +287,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           moon check
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build packages
+        run: moon build
 
       - name: Check generated public interface
         shell: pwsh
