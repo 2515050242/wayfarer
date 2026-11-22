@@ -42,6 +42,14 @@ jobs:
       - name: Run tests
         run: moon test
 
+      - name: Install and test the published library
+        run: |
+          consumer=$(mktemp -d)
+          cp .github/fixtures/mooncakes-consumer/* "$consumer/"
+          cd "$consumer"
+          moon add 2515050242/wayfarer@0.1.0
+          moon test --deny-warn
+
       - name: Run valid feed example
         run: |
           output=$(moon run cmd/main examples/valid 2>&1)

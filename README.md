@@ -41,7 +41,8 @@ moon add 2515050242/wayfarer@0.1.0
 Import `"2515050242/wayfarer"` in your package's `moon.pkg`, then call
 `@wayfarer.parse_csv` for each input and `@wayfarer.validate_csv_dataset`
 for the directory contract. The CLI examples below run from a source
-checkout.
+checkout. CI also installs version 0.1.0 in a fresh project and checks both
+a valid and a broken cross-table reference through the published API.
 
 ## Try it
 
